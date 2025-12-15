@@ -265,5 +265,11 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         return model_inputs
 
 
-AutoConfig.register("llava", LlavaConfig)
+# Register only if not already registered
+try:
+    AutoConfig.register("llava", LlavaConfig)
+except ValueError:
+    # Config already registered, skip
+    pass
+
 AutoModelForCausalLM.register(LlavaConfig, LlavaLlamaForCausalLM)

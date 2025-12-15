@@ -12,16 +12,65 @@ from types import MethodType
 from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from transformers.models.bloom.modeling_bloom import BaseModelOutputWithPastAndCrossAttentions, BloomForCausalLM, BloomModel, CausalLMOutputWithCrossAttentions, CrossEntropyLoss
-from transformers.models.bloom.modeling_bloom import _expand_mask as _expand_mask_bloom
-from transformers.models.bloom.modeling_bloom import _make_causal_mask as _make_causal_mask_bloom
+
+# Handle version compatibility for _expand_mask
+try:
+    from transformers.models.bloom.modeling_bloom import _expand_mask as _expand_mask_bloom
+except ImportError:
+    # For newer versions of transformers, define _expand_mask locally
+    def _expand_mask_bloom(mask, tgt_len=None, past_key_values_length=0):
+        """Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`."""
+        bsz, src_len = mask.size()
+        tgt_len = tgt_len if tgt_len is not None else src_len
+        expanded_mask = mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len).to(torch.int64)
+        inverted_mask = 1.0 - expanded_mask
+        return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(torch.float32).min)
+
+try:
+    from transformers.models.bloom.modeling_bloom import _make_causal_mask as _make_causal_mask_bloom
+except ImportError:
+    # For newer versions
+    def _make_causal_mask_bloom(input_ids_shape, device, past_key_values_length=0):
+        """Make causal mask for bloom model."""
+        bsz, tgt_len = input_ids_shape
+        mask = torch.full((tgt_len, tgt_len), torch.finfo(torch.float32).min)
+        mask_cond = torch.arange(mask.size(-1))
+        mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+        if past_key_values_length > 0:
+            mask = torch.cat([torch.zeros(tgt_len, past_key_values_length, dtype=torch.float32), mask], dim=-1)
+        return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length).to(device)
+
 from transformers.models.bloom.modeling_bloom import logging
 from transformers.models.gpt2.modeling_gpt2 import GPT2LMHeadModel
 from transformers.models.gpt_neo.modeling_gpt_neo import GPTNeoForCausalLM
 from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXForCausalLM
 from transformers.models.gptj.modeling_gptj import GPTJForCausalLM
 from transformers.models.opt.modeling_opt import OPTForCausalLM
-from transformers.models.opt.modeling_opt import _expand_mask as _expand_mask_opt
-from transformers.models.opt.modeling_opt import _make_causal_mask as _make_causal_mask_opt
+
+# Handle version compatibility for OPT masks
+try:
+    from transformers.models.opt.modeling_opt import _expand_mask as _expand_mask_opt
+except ImportError:
+    def _expand_mask_opt(mask, tgt_len=None, past_key_values_length=0):
+        """Expands attention_mask from `[bsz, seq_len]` to `[bsz, 1, tgt_seq_len, src_seq_len]`."""
+        bsz, src_len = mask.size()
+        tgt_len = tgt_len if tgt_len is not None else src_len
+        expanded_mask = mask[:, None, None, :].expand(bsz, 1, tgt_len, src_len).to(torch.int64)
+        inverted_mask = 1.0 - expanded_mask
+        return inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(torch.float32).min)
+
+try:
+    from transformers.models.opt.modeling_opt import _make_causal_mask as _make_causal_mask_opt
+except ImportError:
+    def _make_causal_mask_opt(input_ids_shape, device, past_key_values_length=0):
+        """Make causal mask for OPT model."""
+        bsz, tgt_len = input_ids_shape
+        mask = torch.full((tgt_len, tgt_len), torch.finfo(torch.float32).min)
+        mask_cond = torch.arange(mask.size(-1))
+        mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+        if past_key_values_length > 0:
+            mask = torch.cat([torch.zeros(tgt_len, past_key_values_length, dtype=torch.float32), mask], dim=-1)
+        return mask[None, None, :, :].expand(bsz, 1, tgt_len, tgt_len + past_key_values_length).to(device)
 logger = logging.get_logger(__name__)
 _SUPPORTED_GPT_MODELS = (GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM, GPTNeoXForCausalLM)
 CAUSAL_GPT_TYPES = Union[GPT2LMHeadModel, GPTJForCausalLM, GPTNeoForCausalLM, GPTNeoXForCausalLM]
