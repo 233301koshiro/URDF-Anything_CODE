@@ -7,16 +7,57 @@ from transformers import BitsAndBytesConfig, CLIPVisionModel
 import sys
 import os
 import types
-# from utils.utils import (DEFAULT_IM_END_TOKEN, DEFAULT_IM_START_TOKEN,
-#                          DEFAULT_IMAGE_PATCH_TOKEN)
 
 from .llava.model.language_model.llava_llama import (LlavaLlamaForCausalLM,
                                                      LlavaLlamaModel)
 from utils.loss import dice_loss
 from .Uni3D.models.uni3d import create_uni3d
-from .seg_decoder.decoder import PointCrossAttentionDecoder
 from utils.pointnet_util import PointNetFeaturePropagation
 
+
+class PointCrossAttentionDecoder(nn.Module):
+    def __init__(self, query_dim=512, point_feat_dim=512, hidden_dim=512, num_heads=8, mlp_ratio=2):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+
+        self.query_proj = nn.Linear(query_dim, hidden_dim)
+        self.point_proj = nn.Linear(point_feat_dim, hidden_dim)
+
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=hidden_dim,
+            num_heads=num_heads,
+            batch_first=True
+        )
+
+        mlp_hidden_dim = int(hidden_dim * mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_dim, mlp_hidden_dim),
+            nn.GELU(),
+            nn.Linear(mlp_hidden_dim, hidden_dim)
+        )
+
+        self.score_proj = nn.Linear(hidden_dim, hidden_dim)
+
+    def forward(self, queries, point_features):
+        K, D_q = queries.shape
+        N, D_p = point_features.shape
+
+        Q = self.query_proj(queries)            
+        P = self.point_proj(point_features)      
+
+        Q, K_proj, V_proj = Q.unsqueeze(0), P.unsqueeze(0), P.unsqueeze(0)  
+
+        attn_out, _ = self.cross_attn(Q, K_proj, V_proj)
+        attn_out = attn_out.squeeze(0) 
+
+        refined_queries = attn_out + self.mlp(attn_out) 
+
+        refined_queries = self.score_proj(refined_queries) 
+        P_for_score = self.score_proj(P) 
+
+        logits = torch.matmul(refined_queries, P_for_score.T)
+
+        return logits
 
 class PartSegmentationEmbHead(nn.Module):
     def __init__(self, embed_dim=512, mlp=[512, 512]):
@@ -48,13 +89,6 @@ class LisaMetaModel:
         super(LisaMetaModel, self).__init__(config)
 
         self.config = config
-        # if not hasattr(self.config, "train_mask_decoder"):
-        #     self.config.train_mask_decoder = kwargs["train_mask_decoder"]
-        #     self.config.out_dim = kwargs["out_dim"]
-        #     self.vision_pretrained = kwargs.get("vision_pretrained", None)
-        # else:
-        #     self.vision_pretrained = kwargs.get("vision_pretrained", None)
-        #     self.initialize_lisa_modules(self.config)
         self.backbone3d_path = kwargs.get("backbone3d_path", None)
         self.initialize_lisa_modules(self.config)
 
@@ -168,7 +202,6 @@ class LISAForCausalLM(LlavaLlamaForCausalLM):
         return_lm_out: bool = False,
         **kwargs,
     ):
-        colors = torch.full_like(points[..., :3], 0.4).to(points.device) if colors is None else colors
         points = torch.cat([points, colors], dim=-1)
         point_embeddings = self.get_visual_embs(points)
         batch_size = point_embeddings.shape[0]
@@ -188,7 +221,7 @@ class LISAForCausalLM(LlavaLlamaForCausalLM):
 
         pred_embeddings = []
         for i in range(batch_size):
-            mask_i = seg_token_mask[i]  # [L]
+            mask_i = seg_token_mask[i]
             if mask_i.any():
                 emb_i = last_hidden_state[i][mask_i]
                 if self.context_fusion:
@@ -215,9 +248,11 @@ class LISAForCausalLM(LlavaLlamaForCausalLM):
 
             gt_mask = segment_label[i][:pred_mask.shape[0]]
 
-            # Loss
-            seg_loss += self.bce_loss_weight * F.binary_cross_entropy_with_logits(pred_mask, gt_mask)
-            seg_loss += self.dice_loss_weight * dice_loss(pred_mask, gt_mask, pred_mask.shape[-2])
+            bce  = F.binary_cross_entropy_with_logits(logits, gt_mask)
+            dice = dice_loss(pred_mask, gt_mask, pred_mask.shape[0])
+            
+            seg_loss += self.bce_loss_weight * bce
+            seg_loss += self.dice_loss_weight * dice
             pred_segment.append(pred_mask)
             num_valid_samples += 1
 
@@ -226,7 +261,6 @@ class LISAForCausalLM(LlavaLlamaForCausalLM):
         else:
             seg_loss = torch.tensor(0.0, device=points.device)
 
-        # --- 5. Total loss ---
         ce_loss = output.loss
         total_loss = ce_loss + seg_loss
 
