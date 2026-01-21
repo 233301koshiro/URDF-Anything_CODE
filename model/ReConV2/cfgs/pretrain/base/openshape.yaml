@@ -12,7 +12,7 @@ scheduler:
 
 dataset:
   train:
-    _base_: ReConV2/cfgs/dataset_configs/OpenShape.yaml
+    _base_: model/ReConV2/cfgs/dataset_configs/OpenShape.yaml
     others:
       subset: train
       npoints: 10000

@@ -265,5 +265,19 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         return model_inputs
 
 
-AutoConfig.register("llava", LlavaConfig)
+try:
+    AutoConfig.register("llava", LlavaConfig)
+except ValueError as e:
+    if "is already used" not in str(e):
+        raise
+try:
+    AutoModelForCausalLM.register(LlavaConfig, LlavaLlamaForCausalLM)
+except ValueError as e:
+    if "is already used" not in str(e):
+        raise
+try:
+    AutoConfig.register("llava", LlavaConfig)
+except ValueError as e:
+    if "is already used" not in str(e):
+        raise
 AutoModelForCausalLM.register(LlavaConfig, LlavaLlamaForCausalLM)

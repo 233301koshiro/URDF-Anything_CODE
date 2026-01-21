@@ -43,8 +43,8 @@ class LISADataModule(pl.LightningDataModule):
         self.predict_type = data_args.predict_type
 
     def setup(self, stage=None):
-        self.train_dataset = URDFReasoningDataset(task_mode=self.predict_type, split="train", max_samples=self.data_args.max_samples)
-        self.val_dataset = URDFReasoningDataset(task_mode=self.predict_type, split="test", max_samples=self.data_args.max_samples)
+        self.train_dataset = URDFReasoningDataset(data_root=self.data_args.data_path, task_mode=self.predict_type, split="train", max_samples=self.data_args.max_samples)
+        self.val_dataset = URDFReasoningDataset(data_root=self.data_args.data_path, task_mode=self.predict_type, split="test", max_samples=self.data_args.max_samples)
         self.test_dataset = self.val_dataset
         print(f"Train dataset size: {len(self.train_dataset)}")
         print(f"Val dataset size: {len(self.val_dataset)}")

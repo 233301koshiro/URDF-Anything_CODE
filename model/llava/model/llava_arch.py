@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
+import os
 
 from .multimodal_encoder.builder import build_vision_tower
 from .multimodal_projector.builder import build_vision_projector
@@ -80,15 +81,15 @@ class LlavaMetaModel:
             for p in self.mm_projector.parameters():
                 p.requires_grad = True
 
-        if pretrain_mm_mlp_adapter is not None:
+        if pretrain_mm_mlp_adapter is not None and os.path.isfile(pretrain_mm_mlp_adapter):
             mm_projector_weights = torch.load(pretrain_mm_mlp_adapter, map_location='cpu')
 
             def get_w(weights, keyword):
                 return {k.split(keyword + '.')[1]: v for k, v in weights.items() if keyword in k}
 
-            self.mm_projector.load_state_dict(get_w(mm_projector_weights, 'mm_projector'))
-
-
+            self.mm_projector.load_state_dict(get_w(mm_projector_weights, 'mm_projector'), strict=False)
+        else:
+            print(f"[WARN] pretrain_mm_mlp_adapter missing or not set: {pretrain_mm_mlp_adapter}. skip loading.")
 class LlavaMetaForCausalLM(ABC):
 
     @abstractmethod

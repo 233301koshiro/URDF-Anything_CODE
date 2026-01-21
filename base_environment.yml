@@ -1,0 +1,33 @@
+name: ua_base
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - wheel
+  - setuptools
+  - ninja
+  - cmake
+  - git
+  - pip:
+      - numpy<2.0
+      - pandas
+      - scipy
+      - matplotlib
+      - opencv-python
+      - scikit-learn
+      - sympy
+      - tqdm
+      - pyyaml
+      - requests
+      - click
+      - joblib
+      - filelock
+      - networkx
+      - einops
+      - wandb
+      - pillow
+      - aiofiles
+      - httpx
+      - uvicorn
+

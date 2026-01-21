@@ -6,7 +6,7 @@ LLM_VERSION=./checkpoints/ShapeLLM_7B_general_v1.0
 export TZ='Asia/Shanghai'
 CURRENT_TIME=$(date +"%m%d_%H%M")
 echo "Current time: $CURRENT_TIME"
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0
 
 
 python train_lightning.py \
@@ -33,7 +33,7 @@ python train_lightning.py \
     --per_device_train_batch_size 1 \
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps 10 \
-    --evaluation_strategy "no" \
+    --eval_strategy "no" \
     --num_train_epochs 2 \
     --learning_rate 2e-4 \
     --weight_decay 0. \
