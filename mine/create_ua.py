@@ -4,6 +4,9 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import yourdfpy
 import trimesh
+#点群がパーツごとにバラバラになる問題があったが、secene.dumpという、
+#trimeshが提供する「SceneGraph を評価して、各 geometry に正しい変換を適用した “ワールド座標系の Trimesh（の集合）” を返す」関数
+#を使うことで解決できた。
 
 # =============================================================================
 # Part 1: 構造パラメータ(JSON)抽出（そのまま残す）
