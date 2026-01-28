@@ -11,48 +11,152 @@ import trimesh
 # =============================================================================
 # Part 1: 構造パラメータ(JSON)抽出（そのまま残す）
 # =============================================================================
-def parse_urdf_to_structure_json(urdf_path, output_json_path):
+
+def parse_urdf_to_structure_json(
+    urdf_path: str,
+    output_json_path: str,
+    seg_token: str = "[SEG]",
+    default_category: str = "generic_part",
+    exclude_links=("map", "odom"),
+    label_map_path: str | None = None,
+    keep_only_label_map_links: bool = True,
+    # 追加：Choreonoidなどで必須になりがちな effort/velocity を埋める
+    fill_missing_effort_velocity: bool = True,
+    default_effort: float = 1.0,
+    default_velocity: float = 1.0,
+):
     tree = ET.parse(urdf_path)
     root = tree.getroot()
+
+    label_links = None
+    if label_map_path is not None:
+        lm = json.load(open(label_map_path, "r", encoding="utf-8"))
+        label_links = set(lm.keys())
 
     joints_data = []
     links_map = {}
 
-    for link in root.findall('link'):
-        link_name = link.get('name')
-        links_map[link_name] = "generic_part [SEG]"
+    def allowed(link_name: str) -> bool:
+        if not link_name:
+            return False
+        if link_name in exclude_links:
+            return False
+        if label_links is not None and keep_only_label_map_links:
+            return link_name in label_links
+        return True
 
-    for joint in root.findall('joint'):
+    # links
+    for link in root.findall("link"):
+        link_name = link.get("name")
+        if not allowed(link_name):
+            continue
+        links_map[link_name] = f"{default_category}{seg_token}"
+
+    # joints
+    for joint in root.findall("joint"):
+        jname = joint.get("name")
+        jtype = joint.get("type")
+
+        parent_el = joint.find("parent")
+        child_el = joint.find("child")
+        if parent_el is None or child_el is None:
+            continue
+
+        parent_link = parent_el.get("link")
+        child_link = child_el.get("link")
+        if not allowed(parent_link) or not allowed(child_link):
+            continue
+
         joint_dict = {
-            "id": joint.get('name'), "type": joint.get('type'),
-            "parent": joint.find('parent').get('link'),
-            "child": joint.find('child').get('link'),
-            "origin": {"xyz": [0,0,0], "rpy": [0,0,0]}, "axis": [0,0,0]
+            "id": jname,
+            "type": jtype,
+            "parent": parent_link,
+            "child": child_link,
+            "origin": {"xyz": [0.0, 0.0, 0.0], "rpy": [0.0, 0.0, 0.0]},
+            "axis": [0.0, 0.0, 0.0],
         }
 
-        origin = joint.find('origin')
+        origin = joint.find("origin")
         if origin is not None:
-            if origin.get('xyz'):
-                joint_dict["origin"]["xyz"] = [float(x) for x in origin.get('xyz').split()]
-            if origin.get('rpy'):
-                joint_dict["origin"]["rpy"] = [float(x) for x in origin.get('rpy').split()]
+            xyz = origin.get("xyz")
+            rpy = origin.get("rpy")
+            if xyz:
+                joint_dict["origin"]["xyz"] = [float(x) for x in xyz.split()]
+            if rpy:
+                joint_dict["origin"]["rpy"] = [float(x) for x in rpy.split()]
 
-        axis = joint.find('axis')
-        if axis is not None and axis.get('xyz'):
-            joint_dict["axis"] = [float(x) for x in axis.get('xyz').split()]
+        axis = joint.find("axis")
+        if axis is not None:
+            axyz = axis.get("xyz")
+            if axyz:
+                joint_dict["axis"] = [float(x) for x in axyz.split()]
 
-        limit = joint.find('limit')
-        if limit is not None:
-            joint_dict["limit"] = {}
-            if limit.get('lower'): joint_dict["limit"]["lower"] = float(limit.get('lower'))
-            if limit.get('upper'): joint_dict["limit"]["upper"] = float(limit.get('upper'))
+        # axis デフォルト（任意）
+        if jtype in ("revolute", "prismatic", "continuous") and joint_dict["axis"] == [0.0, 0.0, 0.0]:
+            joint_dict["axis"] = [1.0, 0.0, 0.0]
+
+        # --- limit 読み取り：effort/velocity を追加 ---
+        limit = joint.find("limit")
+
+        if jtype in ("revolute", "prismatic"):
+            if limit is not None:
+                lower = limit.get("lower")
+                upper = limit.get("upper")
+                effort = limit.get("effort")
+                velocity = limit.get("velocity")
+
+                # lower/upper があるなら limit を作る（元と同じ）
+                if lower is not None or upper is not None or effort is not None or velocity is not None:
+                    joint_dict["limit"] = {}
+                    if lower is not None:
+                        joint_dict["limit"]["lower"] = float(lower)
+                    if upper is not None:
+                        joint_dict["limit"]["upper"] = float(upper)
+
+                    # effort/velocity
+                    if effort is not None:
+                        joint_dict["limit"]["effort"] = float(effort)
+                    elif fill_missing_effort_velocity:
+                        joint_dict["limit"]["effort"] = float(default_effort)
+
+                    if velocity is not None:
+                        joint_dict["limit"]["velocity"] = float(velocity)
+                    elif fill_missing_effort_velocity:
+                        joint_dict["limit"]["velocity"] = float(default_velocity)
+
+            elif fill_missing_effort_velocity:
+                # URDFにlimit要素自体が無い場合でも、後段で必要なら追加
+                joint_dict["limit"] = {
+                    "effort": float(default_effort),
+                    "velocity": float(default_velocity),
+                }
+
+        elif jtype == "continuous":
+            # continuous は lower/upper を持たないことが多いが、effort/velocity は必要になりがち
+            if limit is not None:
+                effort = limit.get("effort")
+                velocity = limit.get("velocity")
+                if effort is not None or velocity is not None or fill_missing_effort_velocity:
+                    joint_dict["limit"] = {}
+                    if effort is not None:
+                        joint_dict["limit"]["effort"] = float(effort)
+                    elif fill_missing_effort_velocity:
+                        joint_dict["limit"]["effort"] = float(default_effort)
+
+                    if velocity is not None:
+                        joint_dict["limit"]["velocity"] = float(velocity)
+                    elif fill_missing_effort_velocity:
+                        joint_dict["limit"]["velocity"] = float(default_velocity)
+            elif fill_missing_effort_velocity:
+                joint_dict["limit"] = {
+                    "effort": float(default_effort),
+                    "velocity": float(default_velocity),
+                }
 
         joints_data.append(joint_dict)
 
-    with open(output_json_path, "w") as f:
-        json.dump({"joints": joints_data, "links": links_map}, f, indent=4)
-
-
+    with open(output_json_path, "w", encoding="utf-8") as f:
+        json.dump({"joints": joints_data, "links": links_map}, f, indent=4, ensure_ascii=False)
 # =============================================================================
 # dump出力の型ゆれを吸収
 # =============================================================================
