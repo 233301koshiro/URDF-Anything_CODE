@@ -3,49 +3,91 @@ import numpy as np
 import yourdfpy
 import trimesh
 
-def to_mat(x):
-    if isinstance(x, (tuple, list)):
-        x = x[0]
-    return np.array(x, dtype=float)
+def as_mesh_list(dumped):
+    """
+    trimeshのバージョン差を吸収して、dump結果を list[Trimesh] に揃える
+    """
+    if dumped is None:
+        return []
+    if isinstance(dumped, trimesh.Trimesh):
+        return [dumped]
+    if isinstance(dumped, list) or isinstance(dumped, tuple):
+        meshes = []
+        for x in dumped:
+            meshes.extend(as_mesh_list(x))
+        return meshes
+    if isinstance(dumped, dict):
+        # 古い版だと dict で返ることがある
+        meshes = []
+        for v in dumped.values():
+            meshes.extend(as_mesh_list(v))
+        return meshes
+    # 想定外
+    return []
 
-def main(urdf_path, out_dir="./output/ur3"):
+def mesh_is_valid(m: trimesh.Trimesh) -> bool:
+    if m is None:
+        return False
+    if not hasattr(m, "vertices") or len(m.vertices) == 0:
+        return False
+    if m.vertices.shape[1] != 3:
+        return False
+    if not np.isfinite(m.vertices).all():
+        return False
+    return True
+
+def main(urdf_path, out_dir="./output"):
     os.makedirs(out_dir, exist_ok=True)
 
     robot = yourdfpy.URDF.load(urdf_path, load_meshes=True, load_collision_meshes=False)
     robot.update_cfg(configuration={j: 0.0 for j in robot.joint_map})
 
-    root = robot.scene.graph.base_frame
-    print("[info] base_frame(root) =", root)
+    scene = robot.scene
 
-    # 1) yourdfpyがそのままexportしたOBJ（比較用）
-    obj_ref = os.path.join(out_dir, "./output/ur3/debug_full_robot.obj")
-    robot.scene.export(obj_ref)
-    print("[OK] exported ref obj:", obj_ref)
+    print("[info] scene.geometry count =", len(scene.geometry))
+    print("[info] graph.nodes count    =", len(list(scene.graph.nodes)))
+    try:
+        ng = list(scene.graph.nodes_geometry)
+        print("[info] nodes_geometry count=", len(ng))
+    except Exception as e:
+        print("[warn] cannot read nodes_geometry:", e)
 
-    # 2) あなたの「nodeごとにtransformを取って適用」方式で再構成してexport
-    recon = trimesh.Scene()
+    # 参照（これはあなたの既存と同じ）
+    ref_obj = os.path.join(out_dir, "debug_full_robot.obj")
+    scene.export(ref_obj)
+    print("[OK] exported:", ref_obj)
 
-    # trimesh公式の「geometryを持つノード一覧」から回す（ここが重要）
-    # ※あなたの for node in robot.scene.graph.nodes より安全
-    nodes_geom = list(robot.scene.graph.nodes_geometry)
-    print("[info] nodes_geometry count =", len(nodes_geom))
+    # ★Scene全体をdumpしてワールド化メッシュ群を取得
+    dumped = None
+    try:
+        dumped = scene.dump(concatenate=False)
+    except TypeError:
+        dumped = scene.dump()
 
-    for node in nodes_geom:
-        geom_name = robot.scene.graph[node][1]
-        mesh = robot.scene.geometry.get(geom_name)
-        if mesh is None:
-            continue
+    meshes = as_mesh_list(dumped)
+    print("[info] dumped meshes raw count =", len(meshes))
 
-        # あなたが今固定している方式
-        T = to_mat(robot.scene.graph.get(frame_to=root, frame_from=node))
+    valid = []
+    invalid = 0
+    for m in meshes:
+        if mesh_is_valid(m):
+            valid.append(m)
+        else:
+            invalid += 1
 
-        # add_geometryにtransformとして渡す（apply_transformで焼かない）
-        recon.add_geometry(mesh.copy(), node_name=node, geom_name=f"{geom_name}_copy", transform=T)
+    print("[info] valid meshes   =", len(valid))
+    print("[info] invalid meshes =", invalid)
 
-    obj_recon = os.path.join(out_dir, "reconstructed_by_graph.obj")
-    recon.export(obj_recon)
-    print("[OK] exported reconstructed obj:", obj_recon)
-    print("=> Choreonoidで debug_full_robot.obj と reconstructed_by_graph.obj を重ねて見比べてください")
+    if len(valid) == 0:
+        # ここで落ちるなら dump が返してる中身がメッシュじゃない/空
+        raise RuntimeError("No valid meshes dumped from scene.dump().")
+
+    # Choreonoid互換性のためSTLで出す（OBJのパース地雷回避）
+    big = trimesh.util.concatenate(valid)
+    out_stl = os.path.join(out_dir, "reconstructed_scene_dump.stl")
+    big.export(out_stl)
+    print("[OK] exported:", out_stl)
+    print("=> Choreonoidで debug_full_robot.obj と reconstructed_scene_dump.stl を比較してね")
 
 if __name__ == "__main__":
     main("./1126_merge_robots/merge_fixed_joint_ur3_gripper.urdf", out_dir="./")
