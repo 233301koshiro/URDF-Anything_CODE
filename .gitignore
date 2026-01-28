@@ -15,6 +15,9 @@
 # log
 **/log
 
+mine/1126_merge_robots/
+mine/meshes/
+mine/output/
 # vis
 vis_output/
 playground
