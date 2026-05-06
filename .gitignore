@@ -8,12 +8,17 @@
 # data
 **/data
 /mobility_dataset
+/datasets/
 
 # pyc
 **/__pycache__/
 
 # log
 **/log
+/logs/
+/eval.log
+/eval_run*.log
+/eval_errors.log
 
 # vis
 vis_output/
