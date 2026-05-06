@@ -1,0 +1,82 @@
+#!/bin/bash
+# LLaVA/LISA Training Script - CPU Compatible
+# Includes progress logging and timing information
+
+set -e
+
+export home_dir=.
+cd $home_dir
+
+LLM_VERSION=./checkpoints/ShapeLLM_7B_gapartnet_v1.0
+DATA_ROOT=./datasets/urdf
+LOG_DIR="./logs"
+mkdir -p "${LOG_DIR}"
+
+export TZ='Asia/Shanghai'
+CURRENT_TIME=$(date +"%m%d_%H%M")
+echo "========================================================================="
+echo "  LLaVA/LISA Training Script"
+echo "========================================================================="
+echo "Current time: $CURRENT_TIME"
+echo "Log directory: ${LOG_DIR}"
+echo "CPU-optimized training mode"
+echo ""
+
+LOG_FILE="${LOG_DIR}/train_${CURRENT_TIME}.log"
+echo "Starting training... (output saved to train log)"
+echo ""
+
+python train_lightning.py \
+    --lora_enable True --lora_r 8 --lora_alpha 16 --mm_projector_lr 2e-5 \
+    --model_name_or_path $LLM_VERSION \
+    --version v1 \
+    --vision_tower ./model/ReConV2/cfgs/pretrain/large/openshape.yaml \
+    --vision_tower_path ./checkpoints/recon/large.pth \
+    --backbone3d_path ./checkpoints/Uni3D/uni3d-b/model.pt \
+    --data_root $DATA_ROOT \
+    --sample_points_num 2048 \
+    --with_color True \
+    --occlusion False \
+    --prompt_token_num 32 \
+    --with_ape True \
+    --with_local True \
+    --with_global True \
+    --pretrain_mm_mlp_adapter ./checkpoints/mm_projector/mm_projector.bin \
+    --mm_projector_type mlp2x_gelu \
+    --mm_vision_select_layer -2 \
+    --mm_use_pt_start_end False \
+    --mm_use_pt_patch_token False \
+    --group_by_modality_length True \
+    --output_dir ./output/$LLM_VERSION-lora/${CURRENT_TIME} \
+    --per_device_train_batch_size 1 \
+    --per_device_eval_batch_size 1 \
+    --gradient_accumulation_steps 10 \
+    --evaluation_strategy "no" \
+    --num_train_epochs 2 \
+    --learning_rate 2e-4 \
+    --weight_decay 0. \
+    --warmup_ratio 0.03 \
+    --lr_scheduler_type "cosine" \
+    --logging_steps 1 \
+    --bf16 False \
+    --tf32 False \
+    --model_max_length 2048 \
+    --dataloader_num_workers 0 \
+    --lazy_preprocess True \
+    --report_to wandb \
+    2>&1 | tee "${LOG_FILE}"
+
+TRAIN_EXIT=$?
+
+echo ""
+echo "========================================================================="
+if [ $TRAIN_EXIT -eq 0 ]; then
+    echo "✓ Training completed successfully!"
+else
+    echo "✗ Training failed with exit code: $TRAIN_EXIT"
+fi
+echo "========================================================================="
+echo "Log saved to: ${LOG_FILE}"
+echo ""
+
+exit $TRAIN_EXIT
