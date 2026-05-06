@@ -112,3 +112,22 @@ This project is released under the [MIT License](LICENSE).
 
 ## 🙏 Acknowledgement
 This codebase is built upon [ShapeLLM](https://github.com/qizekun/ShapeLLM), [Uni3D](https://github.com/baaivision/Uni3D) and [LISA](https://github.com/dvlab-research/LISA.git). We thank the authors for their open-source contributions.
+
+## CPU Docker Verification (notes)
+
+- Purpose: provide a reproducible CPU-only Docker image and verify LLaVA/ReConV2 integration on CPU.
+- Quick run (build + test):
+
+```bash
+./docker_build.sh && ./docker_run_test.sh
+```
+
+- Success marker: the test log contains the line `Verification Complete`.
+- Latest verification logs are stored under `logs/` (example: `logs/docker_test_20260501_171351.log`).
+- Known temporary workarounds applied during verification:
+  - Added a lightweight `pointnet2_ops` Python compatibility wrapper to use the repository's pure-PyTorch `pointnet2_utils` for CPU builds.
+  - Wrapped Hugging Face `AutoConfig`/`AutoModel` registration in `try/except` to avoid duplicate-registration crashes during iterative runs.
+  - Pinned `transformers==4.31.0` to avoid API mismatches with internal helper imports.
+  - Created a project-root symlink `ReConV2 -> model/ReConV2` to satisfy relative config file lookups used by some scripts.
+
+If you want these workarounds hardened (e.g., compile `pointnet2_ops` C++ extension in CI or remove temporary registration guards), see `docs/VERIFICATION.md` for details.
