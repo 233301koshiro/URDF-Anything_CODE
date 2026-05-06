@@ -80,7 +80,7 @@ class TrainingArguments(transformers.TrainingArguments):
     optim: str = field(default="adamw_torch")
     remove_unused_columns: bool = field(default=False)
     freeze_mm_mlp_adapter: bool = field(default=False)
-    mpt_attn_impl: Optional[str] = field(default="triton")
+    mpt_attn_impl: Optional[str] = field(default="torch")
     model_max_length: int = field(
         default=512,
         metadata={

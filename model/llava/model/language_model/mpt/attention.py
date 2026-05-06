@@ -46,7 +46,7 @@ def scaled_multihead_dot_product_attention(query, key, value, n_heads, past_key_
         attn_weight = attn_weight.masked_fill(~key_padding_mask.view((b, 1, 1, s_k)), min_val)
     if is_causal and (not q.size(2) == 1):
         s = max(s_q, s_k)
-        causal_mask = attn_weight.new_ones(s, s, dtype=torch.float16)
+        causal_mask = attn_weight.new_ones(s, s, dtype=q.dtype)
         causal_mask = causal_mask.tril()
         causal_mask = causal_mask.to(torch.bool)
         causal_mask = ~causal_mask
@@ -61,12 +61,10 @@ def scaled_multihead_dot_product_attention(query, key, value, n_heads, past_key_
         return (out, attn_weight, past_key_value)
     return (out, None, past_key_value)
 
-def check_valid_inputs(*tensors, valid_dtypes=[torch.float16, torch.bfloat16]):
+def check_valid_inputs(*tensors, valid_dtypes=[torch.float16, torch.bfloat16, torch.float32]):
     for tensor in tensors:
         if tensor.dtype not in valid_dtypes:
             raise TypeError(f'tensor.dtype={tensor.dtype!r} must be in valid_dtypes={valid_dtypes!r}.')
-        if not tensor.is_cuda:
-            raise TypeError(f'Inputs must be cuda tensors (tensor.is_cuda={tensor.is_cuda!r}).')
 
 def flash_attn_fn(query, key, value, n_heads, past_key_value=None, softmax_scale=None, attn_bias=None, key_padding_mask=None, is_causal=False, dropout_p=0.0, training=False, needs_weights=False, multiquery=False):
     try:
@@ -155,7 +153,7 @@ class MultiheadAttention(nn.Module):
     additive bias.
     """
 
-    def __init__(self, d_model: int, n_heads: int, attn_impl: str='triton', clip_qkv: Optional[float]=None, qk_ln: bool=False, softmax_scale: Optional[float]=None, attn_pdrop: float=0.0, low_precision_layernorm: bool=False, verbose: int=0, device: Optional[str]=None):
+    def __init__(self, d_model: int, n_heads: int, attn_impl: str='torch', clip_qkv: Optional[float]=None, qk_ln: bool=False, softmax_scale: Optional[float]=None, attn_pdrop: float=0.0, low_precision_layernorm: bool=False, verbose: int=0, device: Optional[str]=None):
         super().__init__()
         self.attn_impl = attn_impl
         self.clip_qkv = clip_qkv
@@ -208,7 +206,7 @@ class MultiQueryAttention(nn.Module):
     additive bias.
     """
 
-    def __init__(self, d_model: int, n_heads: int, attn_impl: str='triton', clip_qkv: Optional[float]=None, qk_ln: bool=False, softmax_scale: Optional[float]=None, attn_pdrop: float=0.0, low_precision_layernorm: bool=False, verbose: int=0, device: Optional[str]=None):
+    def __init__(self, d_model: int, n_heads: int, attn_impl: str='torch', clip_qkv: Optional[float]=None, qk_ln: bool=False, softmax_scale: Optional[float]=None, attn_pdrop: float=0.0, low_precision_layernorm: bool=False, verbose: int=0, device: Optional[str]=None):
         super().__init__()
         self.attn_impl = attn_impl
         self.clip_qkv = clip_qkv

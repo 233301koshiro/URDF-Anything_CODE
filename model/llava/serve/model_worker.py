@@ -122,6 +122,8 @@ class ModelWorker:
     @torch.inference_mode()
     def generate_stream(self, params):
         tokenizer, model, image_processor = self.tokenizer, self.model, self.image_processor
+        model_device = next(model.parameters()).device
+        model_dtype = next(model.parameters()).dtype
 
         prompt = params["prompt"]
         ori_prompt = prompt
@@ -136,9 +138,9 @@ class ModelWorker:
                 images = process_images(images, image_processor, model.config)
 
                 if type(images) is list:
-                    images = [image.to(self.model.device, dtype=torch.float16) for image in images]
+                    images = [image.to(model_device, dtype=model_dtype) for image in images]
                 else:
-                    images = images.to(self.model.device, dtype=torch.float16)
+                    images = images.to(model_device, dtype=model_dtype)
 
                 replace_token = DEFAULT_POINT_TOKEN
                 if getattr(self.model.config, 'mm_use_pt_start_end', False):
@@ -259,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-path", type=str, default="facebook/opt-350m")
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--model-name", type=str)
-    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--multi-modal", action="store_true", help="Multimodal mode is automatically detected with model name, please make sure `llava` is included in the model path.")
     parser.add_argument("--limit-model-concurrency", type=int, default=5)
     parser.add_argument("--stream-interval", type=int, default=1)

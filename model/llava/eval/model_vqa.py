@@ -50,7 +50,7 @@ def eval_model(args):
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
 
-        input_ids = tokenizer_point_token(prompt, tokenizer, POINT_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).cuda()
+        input_ids = tokenizer_point_token(prompt, tokenizer, POINT_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).to(next(model.parameters()).device)
 
         point = load_pts(os.path.join(args.point_folder, point_file))
         pts_tensor = process_pts(point, model.config).unsqueeze(0)

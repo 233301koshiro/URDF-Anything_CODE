@@ -1,15 +1,32 @@
 #!/bin/bash
+# LLaVA/LISA Training Script - CPU Compatible
+# Includes progress logging and timing information
+
+set -e
+
 export home_dir=.
 cd $home_dir
 
 LLM_VERSION=./checkpoints/ShapeLLM_7B_gapartnet_v1.0
 DATA_ROOT=./datasets/urdf
+LOG_DIR="./logs"
+mkdir -p "${LOG_DIR}"
 
 export TZ='Asia/Shanghai'
 CURRENT_TIME=$(date +"%m%d_%H%M")
+echo "========================================================================="
+echo "  LLaVA/LISA Training Script"
+echo "========================================================================="
 echo "Current time: $CURRENT_TIME"
+echo "Log directory: ${LOG_DIR}"
+echo "CPU-optimized training mode"
+echo ""
 
-CUDA_VISIBLE_DEVICES=0 python train_lightning.py \
+LOG_FILE="${LOG_DIR}/train_${CURRENT_TIME}.log"
+echo "Starting training... (output saved to train log)"
+echo ""
+
+python train_lightning.py \
     --lora_enable True --lora_r 8 --lora_alpha 16 --mm_projector_lr 2e-5 \
     --model_name_or_path $LLM_VERSION \
     --version v1 \

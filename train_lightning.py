@@ -10,20 +10,55 @@ from collections import OrderedDict
 import logging
 import torch.nn as nn
 from scipy.optimize import linear_sum_assignment
+import sys
+import time
 
 from transformers import logging as hf_logging
 import torch
 import torch.utils.checkpoint
 import pytorch_lightning as pl
-from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
+from pytorch_lightning import Trainer
+try:
+    LightningModule = pl.LightningModule
+except AttributeError:
+    try:
+        from pytorch_lightning.core.lightning import LightningModule
+    except Exception:
+        class LightningModule:
+            pass
+try:
+    LightningDataModule = pl.LightningDataModule
+except AttributeError:
+    try:
+        from pytorch_lightning.core.datamodule import LightningDataModule
+    except Exception:
+        class LightningDataModule:
+            pass
+if not hasattr(LightningModule, "save_hyperparameters"):
+    def _save_hyperparameters(self, *args, **kwargs):
+        return None
+    LightningModule.save_hyperparameters = _save_hyperparameters
+from pytorch_lightning.callbacks import ModelCheckpoint
+try:
+    from pytorch_lightning.callbacks import LearningRateMonitor
+except Exception:
+    try:
+        from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
+    except Exception:
+        class LearningRateMonitor:
+            def __init__(self, *args, **kwargs):
+                pass
 from pytorch_lightning.loggers import TensorBoardLogger
 from torch.utils.data import DataLoader
 import transformers
 from transformers import AutoTokenizer, BitsAndBytesConfig, AutoConfig
 from dataclasses import dataclass, field
 from transformers import HfArgumentParser
-from peft import LoraConfig, get_peft_model
+try:
+    from peft import LoraConfig, get_peft_model
+except Exception:
+    LoraConfig = None
+    get_peft_model = None
 from torch.utils.data import Subset
 
 from model.UA import LISAForCausalLM
@@ -39,7 +74,7 @@ import numpy as np
 import glob
 import shutil
 import warnings
-from pydantic.warnings import PydanticDeprecatedSince20
+PydanticDeprecatedSince20 = Warning
 
 def compute_projected_token_length(prompt_token_num: int,
                                     with_ape: bool,
@@ -580,7 +615,7 @@ def _save_mesh_as_obj_generic(mesh, obj_path: str) -> None:
             else:
                 f.write(f"f {i0} {i1} {i2}\n")
 
-class LISADataModule(pl.LightningDataModule):
+class LISADataModule(LightningDataModule):
     def __init__(self, model_args, data_args, training_args, tokenizer):
         super().__init__()
         self.model_args = model_args
@@ -633,6 +668,9 @@ class LISADataModule(pl.LightningDataModule):
         )
 
     def val_dataloader(self):
+        if not hasattr(self, "val_dataset"):
+            self.setup('fit')
+        local_rank = getattr(getattr(self, "trainer", None), "local_rank", 0)
         return DataLoader(
             self.val_dataset,
             batch_size=self.training_args.per_device_eval_batch_size,
@@ -642,13 +680,15 @@ class LISADataModule(pl.LightningDataModule):
                 collate_fn,
                 tokenizer=self.tokenizer,
                 use_mm_start_end=self.model_args.mm_use_pt_start_end,
-                local_rank=self.trainer.local_rank,
+                local_rank=local_rank,
                 point_token_len=self.point_cloud_token_len,
             ),
             pin_memory=self.pin_memory,
         )
 
     def test_dataloader(self):
+        if not hasattr(self, "test_dataset"):
+            self.setup('test')
         return DataLoader(
             self.test_dataset,
             batch_size=self.training_args.per_device_eval_batch_size,
@@ -664,7 +704,7 @@ class LISADataModule(pl.LightningDataModule):
         )
 
 
-class LISALightningModule(pl.LightningModule):
+class LISALightningModule(LightningModule):
     def __init__(self, model_args, data_args, training_args, tokenizer, load_ckpt_path=None):
         super().__init__()
         self.save_hyperparameters({
@@ -679,9 +719,12 @@ class LISALightningModule(pl.LightningModule):
         self.tokenizer = tokenizer
         self.seg_token_idx = self.tokenizer("[SEG]", add_special_tokens=False).input_ids[0]
 
+        use_cuda = torch.cuda.is_available()
         compute_dtype = torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32)
+        if not use_cuda:
+            compute_dtype = torch.float32
         bnb_config = None
-        if training_args.bits in [4, 8]:
+        if use_cuda and training_args.bits in [4, 8]:
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=training_args.bits == 4,
                 load_in_8bit=training_args.bits == 8,
@@ -698,7 +741,7 @@ class LISALightningModule(pl.LightningModule):
             seg_token_idx=self.seg_token_idx,
             cache_dir=training_args.cache_dir,
             quantization_config=bnb_config,
-            device_map={"": "cuda"} if bnb_config else None,
+            device_map={"": "cuda"} if bnb_config else ({"": "cpu"} if not use_cuda else None),
             use_mm_start_end=model_args.mm_use_pt_start_end,
             vision_tower=model_args.vision_tower,
             ce_loss_weight=1.0,
@@ -794,9 +837,11 @@ class LISALightningModule(pl.LightningModule):
             weight_decay=0.0,
             betas=(0.9, 0.95),
         )
-        total_steps = self.trainer.estimated_stepping_batches
+        total_steps = getattr(getattr(self, "trainer", None), "estimated_stepping_batches", None)
+        if total_steps is None:
+            total_steps = max(int(getattr(self.training_args, "max_steps", 0) or 0), 1000)
         warmup_steps = int(total_steps * self.training_args.warmup_ratio)
-        decay_steps = total_steps - warmup_steps
+        decay_steps = max(total_steps - warmup_steps, 1)
 
         warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
             optimizer,
@@ -815,22 +860,29 @@ class LISALightningModule(pl.LightningModule):
             milestones=[warmup_steps],
         )
 
-        return {"optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "interval": "step",
-                    "frequency": 1,
-                }}
+        if hasattr(getattr(self, "trainer", None), "estimated_stepping_batches"):
+            return {"optimizer": optimizer,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "interval": "step",
+                        "frequency": 1,
+                    }}
+        return optimizer
 
     def lr_scheduler_step(self, scheduler, optimizer, metric):
         scheduler.step()
 
     def test_step(self, batch, batch_idx):
+        import time
+        step_start = time.time()
+        print(f"[TEST_STEP_START] batch_idx={batch_idx}, elapsed={time.time()-step_start:.2f}s")
+        
         self.model.eval()
         for m in self.model.modules():
             if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
                 m.train()
         points, colors, questions, gt_answers, seg_mask, part_indices, json_path = batch.values()
+        print(f"[TEST_STEP_BATCH_LOADED] batch_idx={batch_idx}, elapsed={time.time()-step_start:.2f}s")
 
         conv = conversation_lib.default_conversation.copy()
         conv.messages = []
@@ -840,9 +892,12 @@ class LISALightningModule(pl.LightningModule):
 
         json_path = json_path[0] if isinstance(json_path, list) else json_path
         input_ids = tokenizer_point_token(formatted_prompt, self.tokenizer, return_tensors="pt")
-        input_ids = input_ids.unsqueeze(0).to(self.device)
+        model_device = next(self.parameters()).device
+        input_ids = input_ids.unsqueeze(0).to(model_device)
+        print(f"[TEST_STEP_INPUT_PREPARED] batch_idx={batch_idx}, elapsed={time.time()-step_start:.2f}s")
 
         with torch.inference_mode():
+            infer_start = time.time()
             output_ids, pred_masks = self.model.evaluate(
                 points,
                 colors,
@@ -851,6 +906,8 @@ class LISALightningModule(pl.LightningModule):
                 tokenizer=self.tokenizer,
                 seg_type_ids=part_indices[0].tolist(),
             )
+            infer_time = time.time() - infer_start
+            print(f"[TEST_STEP_INFER_DONE] batch_idx={batch_idx}, infer_time={infer_time:.2f}s, elapsed={time.time()-step_start:.2f}s")
 
         output_ids = output_ids[0]
         output_ids = output_ids[output_ids != POINT_TOKEN_INDEX]
@@ -988,6 +1045,10 @@ class LISALightningModule(pl.LightningModule):
 
         except Exception as e:
             print(f"[rank{rank}] reconstruct_single failed: {e}")
+        
+        # DEBUG: Measure and log total test_step time
+        total_time = time.time() - step_start
+        print(f"[TEST_STEP_COMPLETE] batch_idx={batch_idx}, total_time={total_time:.2f}s")
 
     def _save_fused_seg_visualization(self, points, gt_mask, pred_mask, 
                                  gt_path, pred_path):
@@ -1050,7 +1111,7 @@ class TrainingArguments(transformers.TrainingArguments):
     optim: str = field(default="adamw_torch")
     remove_unused_columns: bool = field(default=False)
     freeze_mm_mlp_adapter: bool = field(default=False)
-    mpt_attn_impl: Optional[str] = field(default="triton")
+    mpt_attn_impl: Optional[str] = field(default="torch")
     model_max_length: int = field(default=2048, metadata={"help": "Maximum sequence length."})
     double_quant: bool = field(default=True)
     quant_type: str = field(default="nf4")
@@ -1072,12 +1133,29 @@ class TrainingArguments(transformers.TrainingArguments):
     do_eval: bool = field(default=False)
     load_ckpt_path: str = field(default=None)
     debug_port: int = field(default=5678)
+    limit_test_batches: int = field(default=None, metadata={"help": "Limit number of test batches (None for all)."})
 
 
 def main():
+    import time
+    start_time = time.time()
+    
+    hf_logging.set_verbosity_info()
+    hf_logging.enable_default_handler()
+    
+    print("\n" + "="*70)
+    print("  LLaVA/LISA Training - CPU Compatible Mode")
+    print("="*70)
+    
+    print("\n[1/6] Parsing training arguments...")
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    print(f"  Model: {model_args.model_name_or_path}")
+    print(f"  Output dir: {training_args.output_dir}")
+    print(f"  Epochs: {training_args.num_train_epochs}")
+    print(f"  Batch size: {training_args.per_device_train_batch_size}")
 
+    print("\n[2/6] Initializing random seed and tokenizer...")
     pl.seed_everything(training_args.seed)
 
     tokenizer = AutoTokenizer.from_pretrained(
@@ -1088,10 +1166,19 @@ def main():
     )
     tokenizer.pad_token = tokenizer.unk_token
     tokenizer.add_tokens("[SEG]")
+    print(f"  Tokenizer vocab size: {len(tokenizer)}")
+    print(f"  Max length: {training_args.model_max_length}")
 
+    print("\n[3/6] Loading LLaVA/LISA model...")
     model = LISALightningModule(model_args, data_args, training_args, tokenizer, load_ckpt_path=training_args.load_ckpt_path)
+    model_params = sum(p.numel() for p in model.parameters())
+    print(f"  Model parameters: {model_params:,}")
+    
+    print("\n[4/6] Preparing training dataset...")
     datamodule = LISADataModule(model_args, data_args, training_args, tokenizer)
+    print(f"  Dataset configured and ready")
 
+    print("\n[5/6] Setting up training callbacks...")
     logger = TensorBoardLogger(save_dir=training_args.output_dir, name="logs")
     checkpoint_callback = ModelCheckpoint(
         monitor="val_loss",
@@ -1104,15 +1191,24 @@ def main():
         verbose=True,
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
+    print(f"  Checkpoint callback enabled")
+    print(f"  TensorBoard logger: {training_args.output_dir}/logs")
 
+    print("\n[6/6] Initializing PyTorch Lightning Trainer...")
+    print("  Configuration:")
+    print(f"    - Accelerator: CPU (fully compatible, may be slower)")
+    print(f"    - Precision: float32 (optimal for CPU)")
+    print(f"    - Devices: 1 CPU")
+    print(f"    - Gradient accumulation: {training_args.gradient_accumulation_steps}")
+    
     trainer = Trainer(
         default_root_dir=training_args.output_dir,
         max_epochs=training_args.num_train_epochs,
         accumulate_grad_batches=training_args.gradient_accumulation_steps,
         gradient_clip_val=1.0,
-        precision="bf16",
-        devices="auto",
-        accelerator="gpu",
+        precision="32-true",
+        devices=1,
+        accelerator="cpu",
         logger=logger,
         callbacks=[checkpoint_callback, lr_monitor],
         log_every_n_steps=10,
@@ -1120,7 +1216,37 @@ def main():
         enable_progress_bar=True,
     )
 
-    trainer.fit(model, datamodule=datamodule)
+    print("\n" + "="*70)
+    print("  Starting Training Loop")
+    print("="*70)
+    print("  Monitor progress at: TensorBoard or checkpoints directory")
+    print("  Press Ctrl+C to stop training gracefully")
+    print("="*70 + "\n")
+    
+    try:
+        trainer.fit(model, datamodule=datamodule)
+        
+        elapsed = time.time() - start_time
+        print("\n" + "="*70)
+        print(f"  ✓ Training completed successfully!")
+        print(f"  Total time: {elapsed/3600:.1f}h ({elapsed/60:.0f}m)")
+        print("="*70)
+    except KeyboardInterrupt:
+        elapsed = time.time() - start_time
+        print("\n" + "="*70)
+        print(f"  ⚠ Training interrupted by user")
+        print(f"  Time elapsed: {elapsed/3600:.1f}h ({elapsed/60:.0f}m)")
+        print("="*70)
+        raise
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nTraining stopped.")
+        sys.exit(130)
+    except Exception as e:
+        print(f"\n✗ Training failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

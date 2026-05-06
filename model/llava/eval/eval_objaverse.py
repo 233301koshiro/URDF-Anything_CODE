@@ -90,15 +90,17 @@ def start_generation(model, tokenizer, conv, dataloader, annos, prompt_index, ou
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
 
-    input_ids = tokenizer_point_token(prompt, tokenizer, POINT_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).cuda()
+    model_device = next(model.parameters()).device
+    model_dtype = next(model.parameters()).dtype
+    input_ids = tokenizer_point_token(prompt, tokenizer, POINT_TOKEN_INDEX, return_tensors='pt').unsqueeze(0).to(model_device)
 
     responses = []
 
     for batch in tqdm(dataloader):
-        points = batch["point_clouds"].cuda().to(model.dtype)  # * tensor of B, N, C(3)
+        points = batch["point_clouds"].to(model_device, dtype=model_dtype)  # * tensor of B, N, C(3)
         object_ids = batch["object_ids"]  # * list of string
 
-        pts_tensor = points.to(model.device, dtype=torch.float16)
+        pts_tensor = points
 
         stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
 
@@ -176,7 +178,8 @@ def main(args):
         # * release model and tokenizer, and release cuda memory
         del model
         del tokenizer
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     else:
         # * directly load the results
         print(f'[INFO] {args.output_file_path} already exists, directly loading...')

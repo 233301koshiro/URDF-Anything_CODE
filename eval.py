@@ -1,8 +1,34 @@
 import os
+import sys
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
+try:
+    from pytorch_lightning import seed_everything
+except Exception:
+    try:
+        from pytorch_lightning.utilities.seed import seed_everything
+    except Exception:
+        import random
+        import numpy as np
+        def seed_everything(seed: int):
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            os.environ["PYTHONHASHSEED"] = str(seed)
+            return seed
 from transformers import AutoTokenizer, HfArgumentParser
+import logging
+import time
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s: %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 from train_lightning import ModelArguments, DataArguments, TrainingArguments
 from train_lightning import LISALightningModule, LISADataModule
@@ -54,10 +80,20 @@ def _load_trainable_ckpt_into_pl_module(pl_module: LISALightningModule, ckpt_pat
 
 
 def main():
+    logger.info("="*70)
+    logger.info("Starting LLaVA/LISA Evaluation")
+    logger.info("="*70)
+    
+    start_time = time.time()
+    
+    logger.info("\n[1/6] Parsing arguments...")
     parser = HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    logger.info(f"  Model: {model_args.model_name_or_path}")
+    logger.info(f"  Checkpoint: {training_args.load_ckpt_path}")
 
-    pl.seed_everything(training_args.seed)
+    logger.info("\n[2/6] Seeding and preparing tokenizer...")
+    seed_everything(training_args.seed)
 
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
@@ -67,28 +103,66 @@ def main():
     )
     tokenizer.pad_token = tokenizer.unk_token
     tokenizer.add_tokens("[SEG]")
+    logger.info(f"  Tokenizer vocab size: {len(tokenizer)}")
+    logger.info(f"  Model max length: {training_args.model_max_length}")
 
+    logger.info("\n[3/6] Loading LLaVA/LISA model...")
     pl_module = LISALightningModule(model_args, data_args, training_args, tokenizer, load_ckpt_path=None)
 
+    logger.info("\n[4/6] Loading checkpoint weights...")
     _load_trainable_ckpt_into_pl_module(pl_module, training_args.load_ckpt_path, merge_lora=True)
+    logger.info("  Checkpoint loaded successfully")
 
+    logger.info("\n[5/6] Preparing evaluation dataset...")
     sd = pl_module.model.state_dict()
     keys = [k for k in sd.keys() if "seg_emb_head.propagation" in k and ("running_mean" in k or "running_var" in k)]
     datamodule = LISADataModule(model_args, data_args, training_args, tokenizer)
+    logger.info(f"  Dataset configured (batch_size={training_args.per_device_eval_batch_size})")
 
+    logger.info("\n[6/6] Running evaluation...")
+    logger.info("  Using CPU acceleration for stability on large models")
+    logger.info("  Note: CPU evaluation is slower but fully compatible")
+    
     precision = "bf16" if training_args.bf16 else ("16-mixed" if training_args.fp16 else "32-true")
     
     trainer = Trainer(
-        devices="auto",
-        accelerator="gpu",
-        precision=precision,
+        devices=1,
+        accelerator="cpu",
+        precision="32-true",
         logger=False,
         enable_checkpointing=False,
         enable_progress_bar=True,
+        limit_test_batches=training_args.limit_test_batches,
     )
 
-    trainer.test(pl_module, datamodule=datamodule)
+    logger.info("\nStarting test phase...")
+    import inspect
+    test_sig = inspect.signature(trainer.test)
+    if "datamodule" in test_sig.parameters:
+        trainer.test(pl_module, datamodule=datamodule)
+    elif "test_dataloaders" in test_sig.parameters:
+        trainer.test(pl_module, test_dataloaders=datamodule.test_dataloader())
+    elif "dataloaders" in test_sig.parameters:
+        trainer.test(pl_module, dataloaders=datamodule.test_dataloader())
+    else:
+        pl_module.test_dataloader = datamodule.test_dataloader
+        trainer.test(pl_module)
+    
+    elapsed = time.time() - start_time
+    logger.info("="*70)
+    logger.info(f"Evaluation completed in {elapsed:.1f} seconds")
+    logger.info("="*70)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        logger.info("✓ Evaluation completed successfully")
+    except KeyboardInterrupt:
+        logger.warning("Evaluation interrupted by user")
+        sys.exit(130)
+    except Exception as e:
+        logger.error(f"Evaluation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
