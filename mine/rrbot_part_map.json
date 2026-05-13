@@ -1,0 +1,8 @@
+{
+  "link1": "handle",
+  "link2": "handle",
+  "link3": "handle",
+  "hokuyo_link": "handle",
+  "camera_link": "handle",
+  "camera_link_optical": "handle"
+}

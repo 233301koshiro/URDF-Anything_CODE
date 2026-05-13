@@ -1,0 +1,77 @@
+{
+    "point_cloud": {
+        "link_0": "handle",
+        "link_1": "handle"
+    },
+    "question": "This articulated object ArticulatedObject consists of 2 parts. Represent the segmentation and joint parameters of all links using a structured JSON object.",
+    "normalize": {
+        "centroid": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "scale": 1.0
+    },
+    "answer": {
+        "links": {
+            "link_0": "handle[SEG]",
+            "link_1": "handle[SEG]"
+        },
+        "joints": [
+            {
+                "id": "joint_0",
+                "type": "continuous",
+                "parent": "base",
+                "child": "link_0",
+                "origin": {
+                    "xyz": [
+                        0.0,
+                        0.1,
+                        1.95
+                    ],
+                    "rpy": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            },
+            {
+                "id": "joint_1",
+                "type": "continuous",
+                "parent": "link_0",
+                "child": "link_1",
+                "origin": {
+                    "xyz": [
+                        0.0,
+                        0.1,
+                        0.9
+                    ],
+                    "rpy": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            }
+        ]
+    }
+}

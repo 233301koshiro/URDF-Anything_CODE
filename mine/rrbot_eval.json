@@ -1,0 +1,193 @@
+{
+    "point_cloud": {
+        "link_0": "rotation_bar",
+        "link_1": "rotation_bar",
+        "link_2": "rotation_bar",
+        "link_3": "sensor_camera",
+        "link_4": "camera_body",
+        "link_5": "camera_body"
+    },
+    "question": "This articulated object ArticulatedObject consists of 6 parts. Represent the segmentation and joint parameters of all links using a structured JSON object.",
+    "normalize": {
+        "centroid": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "scale": 1.0
+    },
+    "answer": {
+        "links": {
+            "link_0": "rotation_bar[SEG]",
+            "link_1": "rotation_bar[SEG]",
+            "link_2": "rotation_bar[SEG]",
+            "link_3": "sensor_camera[SEG]",
+            "link_4": "camera_body[SEG]",
+            "link_5": "camera_body[SEG]"
+        },
+        "joints": [
+            {
+                "id": "joint_0",
+                "type": "fixed",
+                "parent": "base",
+                "child": "link_0",
+                "origin": {
+                    "xyz": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "rpy": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    0.0,
+                    1.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            },
+            {
+                "id": "joint_1",
+                "type": "continuous",
+                "parent": "link_0",
+                "child": "link_1",
+                "origin": {
+                    "xyz": [
+                        0.0,
+                        0.1,
+                        1.95
+                    ],
+                    "rpy": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            },
+            {
+                "id": "joint_2",
+                "type": "continuous",
+                "parent": "link_1",
+                "child": "link_2",
+                "origin": {
+                    "xyz": [
+                        0.0,
+                        0.1,
+                        0.9
+                    ],
+                    "rpy": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            },
+            {
+                "id": "joint_3",
+                "type": "fixed",
+                "parent": "link_2",
+                "child": "link_3",
+                "origin": {
+                    "xyz": [
+                        0.0,
+                        0.0,
+                        0.975
+                    ],
+                    "rpy": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            },
+            {
+                "id": "joint_4",
+                "type": "fixed",
+                "parent": "link_2",
+                "child": "link_4",
+                "origin": {
+                    "xyz": [
+                        0.05,
+                        0.0,
+                        0.9
+                    ],
+                    "rpy": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    1.0,
+                    0.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            },
+            {
+                "id": "joint_5",
+                "type": "fixed",
+                "parent": "link_4",
+                "child": "link_5",
+                "origin": {
+                    "xyz": [
+                        0.0,
+                        0.0,
+                        0.0
+                    ],
+                    "rpy": [
+                        -1.5707963267948966,
+                        0.0,
+                        -1.5707963267948966
+                    ]
+                },
+                "axis": [
+                    0.0,
+                    0.0,
+                    1.0
+                ],
+                "limit": {
+                    "lower": 0.0,
+                    "upper": 0.0
+                }
+            }
+        ]
+    }
+}
