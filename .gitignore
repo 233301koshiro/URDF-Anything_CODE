@@ -9,6 +9,7 @@
 **/data
 /mobility_dataset
 /datasets/
+/mine/rrbot_description/
 
 # pyc
 **/__pycache__/
@@ -25,4 +26,4 @@ vis_output/
 playground
 ckpt
 output
-wandb
+wandb                                                       
