@@ -1036,10 +1036,11 @@ class LISALightningModule(LightningModule):
                 )
 
                 try:
+                    model_device = next(self.parameters()).device
                     convert_link_objs_to_mesh_gpu(out_dir, verbose=True,
                                                   fast_mode=True,
                                                   max_workers=4,
-                                                  device=self.device)
+                                                  device=model_device)
                 except Exception as e_mesh:
                     print(f"[rank{rank}] convert_link_objs_to_mesh failed: {e_mesh}")
 
