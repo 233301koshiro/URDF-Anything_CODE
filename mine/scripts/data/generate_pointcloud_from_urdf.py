@@ -7,23 +7,62 @@ Creates synthetic point clouds with part names and instance one-hot encoding.
 import argparse
 import json
 import random
+from math import cos, sin
 from pathlib import Path
 from typing import List, Tuple, Dict
 import numpy as np
 import xml.etree.ElementTree as ET
 
 
-def extract_geometry_from_urdf(urdf_path: str) -> Dict[str, Tuple[str, dict]]:
+def _parse_xyz(text, default=(0.0, 0.0, 0.0)):
+    if not text:
+        return np.array(default, dtype=float)
+    vals = text.strip().split()
+    if len(vals) != 3:
+        return np.array(default, dtype=float)
+    try:
+        return np.array([float(vals[0]), float(vals[1]), float(vals[2])], dtype=float)
+    except ValueError:
+        return np.array(default, dtype=float)
+
+
+def _rpy_to_matrix(rpy):
+    roll, pitch, yaw = [float(v) for v in rpy]
+    cr, sr = cos(roll), sin(roll)
+    cp, sp = cos(pitch), sin(pitch)
+    cy, sy = cos(yaw), sin(yaw)
+    return np.array([
+        [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+        [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+        [-sp, cp * sr, cp * cr],
+    ], dtype=float)
+
+
+def _make_transform(xyz, rpy):
+    T = np.eye(4, dtype=float)
+    T[:3, :3] = _rpy_to_matrix(rpy)
+    T[:3, 3] = np.asarray(xyz, dtype=float)
+    return T
+
+
+def _apply_transform(points: np.ndarray, T: np.ndarray) -> np.ndarray:
+    if len(points) == 0:
+        return points
+    return points @ T[:3, :3].T + T[:3, 3]
+
+
+def extract_geometry_from_urdf(urdf_path: str) -> Tuple[Dict[str, dict], Dict[str, dict]]:
     """
     Extract geometry information from URDF file.
-    Returns: {link_name: (geometry_type, params)}
-      - geometry_type: 'box', 'cylinder', 'sphere'
-      - params: {'size': [x,y,z]} for box, {'radius': r, 'length': l} for cylinder
+    Returns:
+      geometries: {link_name: {geometry_type, params, origin_xyz, origin_rpy}}
+      joints: {child_link: {parent, origin_xyz, origin_rpy, type}}
     """
     tree = ET.parse(urdf_path)
     root = tree.getroot()
     
     geometries = {}
+    joints = {}
     
     for link in root.findall('link'):
         link_name = link.get('name')
@@ -39,26 +78,68 @@ def extract_geometry_from_urdf(urdf_path: str) -> Dict[str, Tuple[str, dict]]:
         geom = visual.find('geometry')
         if geom is None:
             continue
+
+        origin_el = visual.find('origin')
+        origin_xyz = _parse_xyz(origin_el.get('xyz') if origin_el is not None else None)
+        origin_rpy = _parse_xyz(origin_el.get('rpy') if origin_el is not None else None)
         
         # Extract geometry type and parameters
         if geom.find('box') is not None:
             box = geom.find('box')
             size = [float(x) for x in box.get('size').split()]
-            geometries[link_name] = ('box', {'size': size})
+            geometries[link_name] = {
+                'geometry_type': 'box',
+                'params': {'size': size},
+                'origin_xyz': origin_xyz,
+                'origin_rpy': origin_rpy,
+            }
         elif geom.find('cylinder') is not None:
             cyl = geom.find('cylinder')
             radius = float(cyl.get('radius'))
             length = float(cyl.get('length'))
-            geometries[link_name] = ('cylinder', {'radius': radius, 'length': length})
+            geometries[link_name] = {
+                'geometry_type': 'cylinder',
+                'params': {'radius': radius, 'length': length},
+                'origin_xyz': origin_xyz,
+                'origin_rpy': origin_rpy,
+            }
         elif geom.find('sphere') is not None:
             sphere = geom.find('sphere')
             radius = float(sphere.get('radius'))
-            geometries[link_name] = ('sphere', {'radius': radius})
+            geometries[link_name] = {
+                'geometry_type': 'sphere',
+                'params': {'radius': radius},
+                'origin_xyz': origin_xyz,
+                'origin_rpy': origin_rpy,
+            }
         else:
             # Default to small box for mesh/unknown
-            geometries[link_name] = ('box', {'size': [0.05, 0.05, 0.05]})
+            geometries[link_name] = {
+                'geometry_type': 'box',
+                'params': {'size': [0.05, 0.05, 0.05]},
+                'origin_xyz': origin_xyz,
+                'origin_rpy': origin_rpy,
+            }
+
+    for joint in root.findall('joint'):
+        parent_el = joint.find('parent')
+        child_el = joint.find('child')
+        if parent_el is None or child_el is None:
+            continue
+        child_name = child_el.get('link')
+        if not child_name:
+            continue
+        origin_el = joint.find('origin')
+        origin_xyz = _parse_xyz(origin_el.get('xyz') if origin_el is not None else None)
+        origin_rpy = _parse_xyz(origin_el.get('rpy') if origin_el is not None else None)
+        joints[child_name] = {
+            'parent': parent_el.get('link', 'world'),
+            'origin_xyz': origin_xyz,
+            'origin_rpy': origin_rpy,
+            'type': joint.get('type', 'fixed'),
+        }
     
-    return geometries
+    return geometries, joints
 
 
 def generate_box_points(size: List[float], num_points: int, origin: List[float]) -> np.ndarray:
@@ -124,6 +205,33 @@ def generate_one_hot_codes(instance_id: int, num_links: int) -> np.ndarray:
     return codes
 
 
+def _stable_color_seed(name: str) -> int:
+    seed = 0
+    for i, ch in enumerate(name):
+        seed = (seed + (i + 1) * ord(ch)) % (2**31 - 1)
+    return seed
+
+
+def _build_link_world_transform(link_name: str, joints: Dict[str, dict], cache: Dict[str, np.ndarray]) -> np.ndarray:
+    if link_name in cache:
+        return cache[link_name]
+
+    joint = joints.get(link_name)
+    if joint is None:
+        cache[link_name] = np.eye(4, dtype=float)
+        return cache[link_name]
+
+    parent = joint['parent']
+    if parent in (None, '', 'world'):
+        parent_T = np.eye(4, dtype=float)
+    else:
+        parent_T = _build_link_world_transform(parent, joints, cache)
+
+    joint_T = _make_transform(joint['origin_xyz'], joint['origin_rpy'])
+    cache[link_name] = parent_T @ joint_T
+    return cache[link_name]
+
+
 def create_pointcloud_txt(
     urdf_path: str,
     part_map_path: str,
@@ -141,8 +249,8 @@ def create_pointcloud_txt(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    # Load geometries from URDF
-    geometries = extract_geometry_from_urdf(urdf_path)
+    # Load geometries and joint chain from URDF
+    geometries, joints = extract_geometry_from_urdf(urdf_path)
     
     # Load part map
     part_map = {}
@@ -150,8 +258,8 @@ def create_pointcloud_txt(
         with open(part_map_path) as f:
             part_map = json.load(f)
     
-    # Get sorted link names (excluding base)
-    link_names = sorted([ln for ln in geometries.keys() if ln != 'base'])
+    # Get sorted link names (excluding base/world)
+    link_names = sorted([ln for ln in geometries.keys() if ln not in ('base', 'world')])
     num_links = len(link_names)
     
     if num_links == 0:
@@ -162,27 +270,35 @@ def create_pointcloud_txt(
     
     # Generate point cloud
     all_points = []
+    world_cache = {}
     
     for link_idx, link_name in enumerate(link_names):
-        geom_type, params = geometries[link_name]
+        geom_info = geometries[link_name]
+        geom_type = geom_info['geometry_type']
+        params = geom_info['params']
+        geom_origin_xyz = geom_info['origin_xyz']
+        geom_origin_rpy = geom_info['origin_rpy']
         
         # Get part category from part_map (default: link name)
         part_category = part_map.get(link_name, link_name)
         
-        # Generate points for this link
-        origin = [0, 0, 0]  # Simplified: all at origin (real implementation would use link origins)
-        
+        # Generate points for this link in the local geometry frame
         if geom_type == 'box':
-            points = generate_box_points(params['size'], points_per_link, origin)
+            points = generate_box_points(params['size'], points_per_link, [0, 0, 0])
         elif geom_type == 'cylinder':
-            points = generate_cylinder_points(params['radius'], params['length'], points_per_link, origin)
+            points = generate_cylinder_points(params['radius'], params['length'], points_per_link, [0, 0, 0])
         elif geom_type == 'sphere':
-            points = generate_sphere_points(params['radius'], points_per_link, origin)
+            points = generate_sphere_points(params['radius'], points_per_link, [0, 0, 0])
         else:
-            points = generate_box_points([0.1, 0.1, 0.1], points_per_link, origin)
+            points = generate_box_points([0.1, 0.1, 0.1], points_per_link, [0, 0, 0])
+
+        # Apply visual/collision origin and the URDF joint chain
+        geom_T = _make_transform(geom_origin_xyz, geom_origin_rpy)
+        link_world_T = _build_link_world_transform(link_name, joints, world_cache)
+        points = _apply_transform(points, link_world_T @ geom_T)
         
         # Generate color (deterministic from link name)
-        color = generate_color(hash(link_name) % (2**31))
+        color = generate_color(_stable_color_seed(link_name))
         
         # Generate one-hot codes
         one_hot = generate_one_hot_codes(link_idx, num_links)
@@ -190,7 +306,7 @@ def create_pointcloud_txt(
         # Add to point cloud: [obj_id, part_name, x, y, z, r, g, b, inst_code1, ...]
         for point in points:
             x, y, z = point
-            row = [0, part_category, f"{x:.6f}", f"{y:.6f}", f"{z:.6f}"] + \
+            row = ['0', part_category, f"{x:.6f}", f"{y:.6f}", f"{z:.6f}"] + \
                   [str(c) for c in color] + \
                   [str(code) for code in one_hot]
             all_points.append(row)
