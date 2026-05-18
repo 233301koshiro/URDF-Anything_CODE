@@ -133,6 +133,11 @@ class LlavaMetaForCausalLM(ABC):
         new_labels = [] if labels is not None else None
         cur_point_idx = 0
         for batch_idx, cur_input_ids in enumerate(input_ids):
+            try:
+                print(f"[DEBUG ITER] batch_idx={batch_idx} cur_input_ids={cur_input_ids.tolist()} "
+                      f"point_token_count={(cur_input_ids==POINT_TOKEN_INDEX).sum().item()} cur_point_idx={cur_point_idx}", file=sys.stderr)
+            except Exception:
+                pass
             if (cur_input_ids == POINT_TOKEN_INDEX).sum() == 0:
                 # multimodal LLM, but the current sample is not multimodal
                 # FIXME: this is a hacky fix, for deepspeed zero3 to work
