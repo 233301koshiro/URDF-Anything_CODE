@@ -886,7 +886,8 @@ class LISALightningModule(LightningModule):
 
         conv = conversation_lib.default_conversation.copy()
         conv.messages = []
-        conv.append_message(conv.roles[0], questions[0])
+        formatted_question = "<point>\n" + questions[0]
+        conv.append_message(conv.roles[0], formatted_question)
         conv.append_message(conv.roles[1], "")
         formatted_prompt = conv.get_prompt()
 
@@ -902,7 +903,7 @@ class LISALightningModule(LightningModule):
                 points,
                 colors,
                 input_ids,
-                max_new_tokens=512,
+                max_new_tokens=getattr(self.training_args, 'gen_max_new_tokens', 512),
                 tokenizer=self.tokenizer,
                 seg_type_ids=part_indices[0].tolist(),
             )
@@ -1133,6 +1134,7 @@ class TrainingArguments(transformers.TrainingArguments):
     warmup_ratio: float = 0.3
     do_eval: bool = field(default=False)
     load_ckpt_path: str = field(default=None)
+    gen_max_new_tokens: int = field(default=1024, metadata={"help": "Max new tokens for generation during inference"})
     debug_port: int = field(default=5678)
     limit_test_batches: int = field(default=None, metadata={"help": "Limit number of test batches (None for all)."})
 

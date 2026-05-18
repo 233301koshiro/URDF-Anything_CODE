@@ -61,7 +61,7 @@ if [ -z "${EVAL_CUSTOM_IN_CONTAINER:-}" ] && [ ! -f "/.dockerenv" ]; then
     -e CKPT_PATH="$CKPT_PATH" \
     -e LIMIT_TEST_BATCHES="$LIMIT_TEST_BATCHES" \
     "$TARGET_CONTAINER" \
-    bash -lc "cd '$CONTAINER_WORKSPACE' && ./eval_custom.sh"
+    bash -lc "cd '$CONTAINER_WORKSPACE' && ./mine/scripts/eval/eval_custom.sh"
 fi
 
 LOG_DIR="${WORKSPACE}/logs"

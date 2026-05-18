@@ -1,0 +1,61 @@
+[09:39:38] INFO: Created a temporary directory at /tmp/tmpqfleeaq6
+[09:39:38] INFO: Writing /tmp/tmpqfleeaq6/_remote_module_non_scriptable.py
+[2026-05-14 09:39:38,221] [INFO] [real_accelerator.py:110:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[09:39:40] INFO: ======================================================================
+[09:39:40] INFO: Starting LLaVA/LISA Evaluation
+[09:39:40] INFO: ======================================================================
+[09:39:40] INFO: 
+[1/6] Parsing arguments...
+[09:39:40] INFO:   Model: ./checkpoints/ShapeLLM_7B_gapartnet_v1.0
+[09:39:40] INFO:   Checkpoint: ./checkpoints/last.ckpt
+[09:39:40] INFO: 
+[2/6] Seeding and preparing tokenizer...
+You are using the legacy behaviour of the <class 'transformers.models.llama.tokenization_llama.LlamaTokenizer'>. This means that tokens that come after special tokens will not be properly handled. We recommend you to read the related pull request available at https://github.com/huggingface/transformers/pull/24565
+[09:39:40] INFO:   Tokenizer vocab size: 32001
+[09:39:40] INFO:   Model max length: 2048
+[09:39:40] INFO: 
+[3/6] Loading LLaVA/LISA model...
+2026-05-14 09:39:41,163 - ReCon V2 - INFO - [ReCon V2]
+2026-05-14 09:39:41,165 - ReCon - INFO - [ReCon] divide point cloud into G512 x S32 points ...
+2026-05-14 09:39:41,518 - ReCon - INFO - [ReCon] Timm pretrained model eva_large_patch14_336.in22k_ft_in22k_in1k is successful loaded.
+2026-05-14 09:39:42,483 - ReCon V2 - INFO - [ReCon V2]
+2026-05-14 09:39:42,485 - ReCon - INFO - [ReCon] divide point cloud into G512 x S32 points ...
+2026-05-14 09:39:42,820 - ReCon - INFO - [ReCon] Timm pretrained model eva_large_patch14_336.in22k_ft_in22k_in1k is successful loaded.
+/usr/local/lib/python3.10/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:05<00:05,  5.51s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.68s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:09<00:00,  4.81s/it]
+[ckpt] detected LoRA rank = 16, current args lora_r = 16
+[load] merging LoRA weights...
+[load] LoRA merged.
+/usr/local/lib/python3.10/site-packages/pytorch_lightning/callbacks/model_checkpoint.py:81: UserWarning: Checkpoint directory /workspace/URDF-Anything/checkpoints exists and is not empty with save_top_k != 0.All files in this directory will be deleted when a checkpoint is saved!
+  warnings.warn(
+Testing:   0%|          | 0/1 [00:00<?, ?it/s][09:40:48] ERROR: Evaluation failed: [SegCheck Failed] overlap_points=0, hole_points=1212. Need disjoint masks and full coverage.
+Traceback (most recent call last):
+  File "/workspace/URDF-Anything/eval.py", line 159, in <module>
+    main()
+  File "/workspace/URDF-Anything/eval.py", line 149, in main
+    trainer.test(pl_module)
+  File "/usr/local/lib/python3.10/site-packages/pytorch_lightning/trainer/trainer.py", line 860, in test
+    self.fit(model)
+  File "/usr/local/lib/python3.10/site-packages/pytorch_lightning/trainer/trainer.py", line 630, in fit
+    self.run_pretrain_routine(model)
+  File "/usr/local/lib/python3.10/site-packages/pytorch_lightning/trainer/trainer.py", line 786, in run_pretrain_routine
+    self.run_evaluation(test_mode=True)
+  File "/usr/local/lib/python3.10/site-packages/pytorch_lightning/trainer/evaluation_loop.py", line 368, in run_evaluation
+    eval_results = self.evaluate(self.model, dataloaders, max_batches, test_mode)
+  File "/usr/local/lib/python3.10/site-packages/pytorch_lightning/trainer/evaluation_loop.py", line 251, in evaluate
+    for batch_idx, batch in enumerate(dataloader):
+  File "/usr/local/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 633, in __next__
+    data = self._next_data()
+  File "/usr/local/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 677, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/usr/local/lib/python3.10/site-packages/torch/utils/data/_utils/fetch.py", line 51, in fetch
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/usr/local/lib/python3.10/site-packages/torch/utils/data/_utils/fetch.py", line 51, in <listcomp>
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/workspace/URDF-Anything/utils/new_dataset.py", line 160, in __getitem__
+    self._check_segmentation(seg_mask)
+  File "/workspace/URDF-Anything/utils/new_dataset.py", line 294, in _check_segmentation
+    raise ValueError(
+ValueError: [SegCheck Failed] overlap_points=0, hole_points=1212. Need disjoint masks and full coverage.
+Testing:   0%|          | 0/1 [00:00<?, ?it/s]

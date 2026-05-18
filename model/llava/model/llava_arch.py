@@ -15,6 +15,7 @@
 
 from abc import ABC, abstractmethod
 
+import sys, traceback
 import torch
 import torch.nn as nn
 
@@ -130,7 +131,19 @@ class LlavaMetaForCausalLM(ABC):
                 # multimodal LLM, but the current sample is not multimodal
                 # FIXME: this is a hacky fix, for deepspeed zero3 to work
                 half_len = cur_input_ids.shape[0] // 2
-                cur_point_features = point_features[cur_point_idx]
+                try:
+                    cur_point_features = point_features[cur_point_idx]
+                except Exception:
+                    print(f"[DEBUG] (non-multimodal) point_features_type={type(point_features)} "
+                          f"point_features_shape={getattr(point_features,'shape',None) if not isinstance(point_features,list) else len(point_features)} "
+                          f"cur_point_idx={cur_point_idx} batch_idx={batch_idx}", file=sys.stderr)
+                    if isinstance(point_features, list):
+                        for i, p in enumerate(point_features):
+                            print(f"[DEBUG] list idx={i} element_shape={getattr(p,'shape',None)}", file=sys.stderr)
+                    else:
+                        print(f"[DEBUG] tensor_shape={getattr(point_features,'shape',None)}", file=sys.stderr)
+                    traceback.print_exc()
+                    raise
                 cur_input_embeds_1 = self.get_model().embed_tokens(cur_input_ids[:half_len])
                 cur_input_embeds_2 = self.get_model().embed_tokens(cur_input_ids[half_len:])
                 cur_input_embeds = torch.cat([cur_input_embeds_1, cur_point_features[0:0], cur_input_embeds_2], dim=0)
@@ -146,7 +159,19 @@ class LlavaMetaForCausalLM(ABC):
                 cur_new_labels = []
                 assert cur_labels.shape == cur_input_ids.shape
             while point_token_indices.numel() > 0:
-                cur_point_features = point_features[cur_point_idx]
+                try:
+                    cur_point_features = point_features[cur_point_idx]
+                except Exception:
+                    print(f"[DEBUG] (point loop) point_features_type={type(point_features)} "
+                          f"point_features_shape={getattr(point_features,'shape',None) if not isinstance(point_features,list) else len(point_features)} "
+                          f"cur_point_idx={cur_point_idx} batch_idx={batch_idx} point_token_indices={point_token_indices.tolist()}", file=sys.stderr)
+                    if isinstance(point_features, list):
+                        for i, p in enumerate(point_features):
+                            print(f"[DEBUG] list idx={i} element_shape={getattr(p,'shape',None)}", file=sys.stderr)
+                    else:
+                        print(f"[DEBUG] tensor_shape={getattr(point_features,'shape',None)}", file=sys.stderr)
+                    traceback.print_exc()
+                    raise
                 point_token_start = point_token_indices[0]
                 if getattr(self.config, 'tune_mm_mlp_adapter', False) and getattr(self.config, 'mm_use_pt_start_end',
                                                                                   False):

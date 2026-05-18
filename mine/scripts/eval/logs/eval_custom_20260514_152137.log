@@ -1,0 +1,36 @@
+[15:21:38] INFO: Created a temporary directory at /tmp/tmp9lpsv_or
+[15:21:38] INFO: Writing /tmp/tmp9lpsv_or/_remote_module_non_scriptable.py
+[2026-05-14 15:21:38,485] [INFO] [real_accelerator.py:110:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[15:21:40] INFO: ======================================================================
+[15:21:40] INFO: Starting LLaVA/LISA Evaluation
+[15:21:40] INFO: ======================================================================
+[15:21:40] INFO: 
+[1/6] Parsing arguments...
+[15:21:40] INFO:   Model: ./checkpoints/ShapeLLM_7B_gapartnet_v1.0
+[15:21:40] INFO:   Checkpoint: ./checkpoints/last.ckpt
+[15:21:40] INFO: 
+[2/6] Seeding and preparing tokenizer...
+You are using the legacy behaviour of the <class 'transformers.models.llama.tokenization_llama.LlamaTokenizer'>. This means that tokens that come after special tokens will not be properly handled. We recommend you to read the related pull request available at https://github.com/huggingface/transformers/pull/24565
+[15:21:40] INFO:   Tokenizer vocab size: 32001
+[15:21:40] INFO:   Model max length: 2048
+[15:21:40] INFO: 
+[3/6] Loading LLaVA/LISA model...
+2026-05-14 15:21:40,767 - ReCon V2 - INFO - [ReCon V2]
+2026-05-14 15:21:40,768 - ReCon - INFO - [ReCon] divide point cloud into G512 x S32 points ...
+2026-05-14 15:21:41,130 - ReCon - INFO - [ReCon] Timm pretrained model eva_large_patch14_336.in22k_ft_in22k_in1k is successful loaded.
+2026-05-14 15:21:42,119 - ReCon V2 - INFO - [ReCon V2]
+2026-05-14 15:21:42,120 - ReCon - INFO - [ReCon] divide point cloud into G512 x S32 points ...
+2026-05-14 15:21:42,433 - ReCon - INFO - [ReCon] Timm pretrained model eva_large_patch14_336.in22k_ft_in22k_in1k is successful loaded.
+/usr/local/lib/python3.10/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.02s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:13<00:00,  6.13s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:13<00:00,  6.56s/it]
+[ckpt] detected LoRA rank = 16, current args lora_r = 16
+[load] merging LoRA weights...
+[load] LoRA merged.
+/usr/local/lib/python3.10/site-packages/pytorch_lightning/callbacks/model_checkpoint.py:81: UserWarning: Checkpoint directory /workspace/URDF-Anything/checkpoints exists and is not empty with save_top_k != 0.All files in this directory will be deleted when a checkpoint is saved!
+  warnings.warn(
+Testing:   0%|          | 0/1 [00:00<?, ?it/s][TEST_STEP_START] batch_idx=0, elapsed=0.00s
+[TEST_STEP_BATCH_LOADED] batch_idx=0, elapsed=0.00s
+[TEST_STEP_INPUT_PREPARED] batch_idx=0, elapsed=0.00s
+/usr/local/lib/python3.10/site-packages/transformers/generation/utils.py:1270: UserWarning: You have modified the pretrained model configuration to control generation. This is a deprecated strategy to control generation and will be removed soon, in a future version. Please use a generation configuration file (see https://huggingface.co/docs/transformers/main_classes/text_generation )
+  warnings.warn(
