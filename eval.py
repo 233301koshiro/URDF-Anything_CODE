@@ -103,7 +103,9 @@ def main():
     )
     tokenizer.pad_token = tokenizer.unk_token
     tokenizer.add_tokens("[SEG]")
+    seg_token_idx = tokenizer("[SEG]", add_special_tokens=False).input_ids[0]
     logger.info(f"  Tokenizer vocab size: {len(tokenizer)}")
+    logger.info(f"  [SEG] token ID: {seg_token_idx}")
     logger.info(f"  Model max length: {training_args.model_max_length}")
 
     logger.info("\n[3/6] Loading LLaVA/LISA model...")
