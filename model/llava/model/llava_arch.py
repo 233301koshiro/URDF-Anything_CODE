@@ -15,7 +15,6 @@
 
 from abc import ABC, abstractmethod
 
-import sys, traceback
 import torch
 import torch.nn as nn
 
@@ -107,12 +106,6 @@ class LlavaMetaForCausalLM(ABC):
     def prepare_inputs_labels_for_multimodal(
             self, input_ids, attention_mask, past_key_values, labels, points
     ):
-        try:
-            print(f"[DEBUG ENTRY] input_ids_shape={getattr(input_ids,'shape',None)} "
-              f"attention_mask_shape={getattr(attention_mask,'shape',None)} "
-              f"points_type={type(points)} points_shape={getattr(points,'shape',None) if points is not None else None}", file=sys.stderr)
-        except Exception:
-            pass
         vision_tower = self.get_vision_tower()
         if vision_tower is None or points is None or input_ids.shape[1] == 1:
             if past_key_values is not None and vision_tower is not None and points is not None and input_ids.shape[1] == 1:
@@ -133,35 +126,20 @@ class LlavaMetaForCausalLM(ABC):
         new_labels = [] if labels is not None else None
         cur_point_idx = 0
         for batch_idx, cur_input_ids in enumerate(input_ids):
-            try:
-                print(f"[DEBUG ITER] batch_idx={batch_idx} cur_input_ids={cur_input_ids.tolist()} "
-                      f"point_token_count={(cur_input_ids==POINT_TOKEN_INDEX).sum().item()} cur_point_idx={cur_point_idx}", file=sys.stderr)
-            except Exception:
-                pass
+            sample_point_idx = cur_point_idx if isinstance(point_features, list) else batch_idx
             if (cur_input_ids == POINT_TOKEN_INDEX).sum() == 0:
                 # multimodal LLM, but the current sample is not multimodal
                 # FIXME: this is a hacky fix, for deepspeed zero3 to work
                 half_len = cur_input_ids.shape[0] // 2
-                try:
-                    cur_point_features = point_features[cur_point_idx]
-                except Exception:
-                    print(f"[DEBUG] (non-multimodal) point_features_type={type(point_features)} "
-                          f"point_features_shape={getattr(point_features,'shape',None) if not isinstance(point_features,list) else len(point_features)} "
-                          f"cur_point_idx={cur_point_idx} batch_idx={batch_idx}", file=sys.stderr)
-                    if isinstance(point_features, list):
-                        for i, p in enumerate(point_features):
-                            print(f"[DEBUG] list idx={i} element_shape={getattr(p,'shape',None)}", file=sys.stderr)
-                    else:
-                        print(f"[DEBUG] tensor_shape={getattr(point_features,'shape',None)}", file=sys.stderr)
-                    traceback.print_exc()
-                    raise
+                cur_point_features = point_features[sample_point_idx]
                 cur_input_embeds_1 = self.get_model().embed_tokens(cur_input_ids[:half_len])
                 cur_input_embeds_2 = self.get_model().embed_tokens(cur_input_ids[half_len:])
                 cur_input_embeds = torch.cat([cur_input_embeds_1, cur_point_features[0:0], cur_input_embeds_2], dim=0)
                 new_input_embeds.append(cur_input_embeds)
                 if labels is not None:
                     new_labels.append(labels[batch_idx])
-                cur_point_idx += 1
+                if isinstance(point_features, list):
+                    cur_point_idx += 1
                 continue
             point_token_indices = torch.where(cur_input_ids == POINT_TOKEN_INDEX)[0]
             cur_new_input_embeds = []
@@ -170,19 +148,7 @@ class LlavaMetaForCausalLM(ABC):
                 cur_new_labels = []
                 assert cur_labels.shape == cur_input_ids.shape
             while point_token_indices.numel() > 0:
-                try:
-                    cur_point_features = point_features[cur_point_idx]
-                except Exception:
-                    print(f"[DEBUG] (point loop) point_features_type={type(point_features)} "
-                          f"point_features_shape={getattr(point_features,'shape',None) if not isinstance(point_features,list) else len(point_features)} "
-                          f"cur_point_idx={cur_point_idx} batch_idx={batch_idx} point_token_indices={point_token_indices.tolist()}", file=sys.stderr)
-                    if isinstance(point_features, list):
-                        for i, p in enumerate(point_features):
-                            print(f"[DEBUG] list idx={i} element_shape={getattr(p,'shape',None)}", file=sys.stderr)
-                    else:
-                        print(f"[DEBUG] tensor_shape={getattr(point_features,'shape',None)}", file=sys.stderr)
-                    traceback.print_exc()
-                    raise
+                cur_point_features = point_features[sample_point_idx]
                 point_token_start = point_token_indices[0]
                 if getattr(self.config, 'tune_mm_mlp_adapter', False) and getattr(self.config, 'mm_use_pt_start_end',
                                                                                   False):
@@ -209,7 +175,8 @@ class LlavaMetaForCausalLM(ABC):
                             torch.full((cur_point_features.shape[0],), IGNORE_INDEX, device=labels.device,
                                        dtype=labels.dtype))
                         cur_labels = cur_labels[point_token_start + 1:]
-                cur_point_idx += 1
+                if isinstance(point_features, list):
+                    cur_point_idx += 1
                 if getattr(self.config, 'tune_mm_mlp_adapter', False) and getattr(self.config, 'mm_use_pt_start_end',
                                                                                   False):
                     cur_input_ids = cur_input_ids[point_token_start + 2:]
