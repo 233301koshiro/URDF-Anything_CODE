@@ -270,6 +270,23 @@ class LISAForCausalLM(LlavaLlamaForCausalLM):
         )
         output_ids = gen_out.sequences 
 
+        try:
+            input_len = int(input_ids.shape[1])
+            total_len = int(output_ids.shape[1])
+            gen_len = max(0, total_len - input_len)
+            seg_count = int((output_ids == self.seg_token_idx).sum().item())
+            first_gen_ids = output_ids[0, input_len : min(total_len, input_len + 24)].tolist()
+            print(f"[EVAL_DEBUG] self.seg_token_idx={self.seg_token_idx}, first_gen_ids={first_gen_ids}")
+            print(f"[EVAL_DEBUG] input_len={input_len}, total_len={total_len}, gen_len={gen_len}, seg_count={seg_count}")
+        except Exception as e:
+            print(f"[EVAL_DEBUG] token_stats_failed: {e}")
+
+        try:
+            decoded_preview = tokenizer.decode(output_ids[0], skip_special_tokens=False)
+            print(f"[EVAL_DEBUG] decoded_preview={decoded_preview[:400]}")
+        except Exception as e:
+            print(f"[EVAL_DEBUG] decode_failed: {e}")
+
         attn = torch.ones_like(output_ids, device=device)
         fw_out = self(
             points=points,
