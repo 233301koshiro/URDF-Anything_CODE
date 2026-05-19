@@ -202,7 +202,7 @@ class URDFReasoningDatasetBack(torch.utils.data.Dataset):
                 if len(t) < 8:
                     continue
 
-                part = t[1]
+                part = t[1] if t[1] in PART2IDX else "handle"
                 x, y, z = float(t[2]), float(t[3]), float(t[4])
                 r, g, b = float(t[5]), float(t[6]), float(t[7])
 
