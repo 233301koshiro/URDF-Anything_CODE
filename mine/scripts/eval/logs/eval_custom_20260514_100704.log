@@ -1,46 +1,0 @@
-[10:07:05] INFO: Created a temporary directory at /tmp/tmpy402i9r9
-[10:07:05] INFO: Writing /tmp/tmpy402i9r9/_remote_module_non_scriptable.py
-[2026-05-14 10:07:06,011] [INFO] [real_accelerator.py:110:get_accelerator] Setting ds_accelerator to cuda (auto detect)
-[10:07:08] INFO: ======================================================================
-[10:07:08] INFO: Starting LLaVA/LISA Evaluation
-[10:07:08] INFO: ======================================================================
-[10:07:08] INFO: 
-[1/6] Parsing arguments...
-[10:07:08] INFO:   Model: ./checkpoints/ShapeLLM_7B_gapartnet_v1.0
-[10:07:08] INFO:   Checkpoint: ./checkpoints/last.ckpt
-[10:07:08] INFO: 
-[2/6] Seeding and preparing tokenizer...
-You are using the legacy behaviour of the <class 'transformers.models.llama.tokenization_llama.LlamaTokenizer'>. This means that tokens that come after special tokens will not be properly handled. We recommend you to read the related pull request available at https://github.com/huggingface/transformers/pull/24565
-[10:07:08] INFO:   Tokenizer vocab size: 32001
-[10:07:08] INFO:   Model max length: 2048
-[10:07:08] INFO: 
-[3/6] Loading LLaVA/LISA model...
-2026-05-14 10:07:09,209 - ReCon V2 - INFO - [ReCon V2]
-2026-05-14 10:07:09,210 - ReCon - INFO - [ReCon] divide point cloud into G512 x S32 points ...
-2026-05-14 10:07:09,812 - ReCon - INFO - [ReCon] Timm pretrained model eva_large_patch14_336.in22k_ft_in22k_in1k is successful loaded.
-2026-05-14 10:07:09,860 - ReCon V2 - INFO - [ReCon V2]
-2026-05-14 10:07:09,861 - ReCon - INFO - [ReCon] divide point cloud into G512 x S32 points ...
-2026-05-14 10:07:10,168 - ReCon - INFO - [ReCon] Timm pretrained model eva_large_patch14_336.in22k_ft_in22k_in1k is successful loaded.
-/usr/local/lib/python3.10/site-packages/torch/functional.py:504: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3483.)
-  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:08<00:08,  8.86s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  6.08s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  6.50s/it]
-[ckpt] detected LoRA rank = 16, current args lora_r = 16
-[load] merging LoRA weights...
-[load] LoRA merged.
-/usr/local/lib/python3.10/site-packages/pytorch_lightning/callbacks/model_checkpoint.py:81: UserWarning: Checkpoint directory /workspace/URDF-Anything/checkpoints exists and is not empty with save_top_k != 0.All files in this directory will be deleted when a checkpoint is saved!
-  warnings.warn(
-Testing:   0%|          | 0/1 [00:00<?, ?it/s][TEST_STEP_START] batch_idx=0, elapsed=0.00s
-[TEST_STEP_BATCH_LOADED] batch_idx=0, elapsed=0.00s
-[TEST_STEP_INPUT_PREPARED] batch_idx=0, elapsed=0.00s
-/usr/local/lib/python3.10/site-packages/transformers/generation/utils.py:1270: UserWarning: You have modified the pretrained model configuration to control generation. This is a deprecated strategy to control generation and will be removed soon, in a future version. Please use a generation configuration file (see https://huggingface.co/docs/transformers/main_classes/text_generation )
-  warnings.warn(
-[TEST_STEP_INFER_DONE] batch_idx=0, infer_time=11537.34s, elapsed=11537.35s
-    [pred] fused ply not found: ./output_custom/checkpoints/ShapeLLM_7B_gapartnet_v1.0-lora/infer_custom/test/seg_visualization/rrbot_test_0_pred_fused.ply
-    [gt] fused ply not found: ./output_custom/checkpoints/ShapeLLM_7B_gapartnet_v1.0-lora/infer_custom/test/seg_visualization/rrbot_test_0_gt_fused.ply
-    [mesh_convert_gpu] No link_*.obj found in ./output_custom/checkpoints/ShapeLLM_7B_gapartnet_v1.0-lora/infer_custom/test/reconstructed/rrbot_test_0
-[TEST_STEP_COMPLETE] batch_idx=0, total_time=11537.44s
-Testing: 50it [3:12:17, 230.75s/it]           ----------------------------------------------------------------------------------------------------
-TEST RESULTS
-{}
-----------------------------------------------------------------------------------------------------
-Testing: 50it [3:12:17, 230.75s/it]
