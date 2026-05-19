@@ -1,8 +1,8 @@
 {
-  "link1": "handle",
-  "link2": "handle",
-  "link3": "handle",
-  "hokuyo_link": "handle",
-  "camera_link": "handle",
-  "camera_link_optical": "handle"
+  "link1": "rotation_bar",
+  "link2": "rotation_bar",
+  "link3": "rotation_bar",
+  "hokuyo_link": "lens",
+  "camera_link": "camera_body",
+  "camera_link_optical": "camera_body"
 }

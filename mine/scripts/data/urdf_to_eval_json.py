@@ -20,6 +20,26 @@ part_map.json example:
   "lid_link": "lid",
   "body_link": "pot_body"
 }
+
+rrbot_test example (for this repository):
+
+    # 1) Generate a part map from the rrbot URDF
+    python mine/scripts/data/matching_part_map.py \
+        --urdf ./mine/rrbot.urdf \
+        --output ./mine/rrbot_part_map.json
+
+    # 2) Generate the evaluation JSON
+    python mine/scripts/data/urdf_to_eval_json.py \
+        --urdf ./mine/rrbot.urdf \
+        --output ./datasets/rrbot_test/json_questions/rrbot_test/rrbot_test_0.json \
+        --object-name rrbot_test \
+        --part-map ./mine/rrbot_part_map.json \
+        --include-fixed-joints
+
+If your custom dataset still collapses every part to "handle", compare the
+`point_cloud` and `answer.links` fields against the example output above.
+The goal is to keep the URDF link structure, the semantic part names, and the
+segmentation targets aligned.
 """
 
 from __future__ import annotations
@@ -31,6 +51,27 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+
+RRBOT_TEST_EXAMPLE = {
+    "summary": "Use rrbot URDF + a part map so the generated JSON keeps link structure and readable part names.",
+    "run_part_map": [
+        "python mine/scripts/data/matching_part_map.py --urdf ./mine/rrbot.urdf --output ./mine/rrbot_part_map.json",
+    ],
+    "run_json": [
+        "python mine/scripts/data/urdf_to_eval_json.py --urdf ./mine/rrbot.urdf --output ./datasets/rrbot_test/json_questions/rrbot_test/rrbot_test_0.json --object-name rrbot_test --part-map ./mine/rrbot_part_map.json --include-fixed-joints",
+    ],
+    "expected_shape": {
+        "point_cloud": {"link_0": "<part_name>", "link_1": "<part_name>", "...": "..."},
+        "answer.links": {"link_0": "<part_name>[SEG]", "link_1": "<part_name>[SEG]", "...": "..."},
+        "answer.joints": "joint list copied from the URDF chain and remapped to link_0/link_1/...",
+    },
+    "notes": [
+        "If the part map is missing or too generic, the fallback part name becomes 'handle'.",
+        "That fallback makes custom data look structurally flat and can cause weak generation or empty [SEG] output.",
+        "The generator remaps URDF child links to link_0, link_1, ... so the evaluation schema stays consistent with training.",
+    ],
+}
 
 
 def _parse_xyz_or_rpy(text: str | None, default: List[float]) -> List[float]:
@@ -221,8 +262,8 @@ def convert_urdf_to_schema(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Convert URDF to evaluation JSON schema template")
-    p.add_argument("--urdf", required=True, help="Input URDF path")
-    p.add_argument("--output", required=True, help="Output JSON path")
+    p.add_argument("--urdf", default="", help="Input URDF path")
+    p.add_argument("--output", default="", help="Output JSON path")
     p.add_argument("--object-name", default="ArticulatedObject", help="Name used in question text")
     p.add_argument("--part-map", default="", help="Optional JSON map: {urdf_link_name: part_category}")
     p.add_argument("--base-link", default="base", help="Base link name in URDF that should map to 'base'")
@@ -236,16 +277,29 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Fail if mapped part names are not in PART_CATEGORIES",
     )
+    p.add_argument(
+        "--example",
+        choices=["rrbot_test"],
+        default="",
+        help="Print a repository-specific example and exit (currently: rrbot_test)",
+    )
     return p.parse_args()
 
 
 def main() -> int:
     args = parse_args()
 
+    if args.example == "rrbot_test":
+        print(json.dumps(RRBOT_TEST_EXAMPLE, indent=2, ensure_ascii=False))
+        return 0
+
     urdf_path = Path(args.urdf)
     out_path = Path(args.output)
     if not urdf_path.exists():
         print(f"[ERROR] URDF not found: {urdf_path}", file=sys.stderr)
+        return 2
+    if not args.output:
+        print("[ERROR] --output is required unless --example rrbot_test is used", file=sys.stderr)
         return 2
 
     part_map = _load_part_map(args.part_map)

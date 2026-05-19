@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict
 import numpy as np
 import xml.etree.ElementTree as ET
+import colorsys
 
 
 def _parse_xyz(text, default=(0.0, 0.0, 0.0)):
@@ -197,6 +198,22 @@ def generate_color(seed: int) -> Tuple[int, int, int]:
     return (random.randint(50, 255), random.randint(50, 255), random.randint(50, 255))
 
 
+def generate_distinct_color(index: int, total: int) -> Tuple[int, int, int]:
+    """Generate a distinct RGB color by evenly spacing hues in HSV space.
+
+    - `index` should be in [0, total-1].
+    - returns (R,G,B) in 0-255 ints.
+    """
+    if total <= 0:
+        return (200, 200, 200)
+    # Evenly spaced hue in [0,1)
+    h = (float(index) / float(total)) % 1.0
+    s = 0.80
+    v = 0.95
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
 def generate_one_hot_codes(instance_id: int, num_links: int) -> np.ndarray:
     """Generate one-hot encoding for instance ID."""
     codes = np.zeros(num_links, dtype=int)
@@ -236,12 +253,21 @@ def create_pointcloud_txt(
     urdf_path: str,
     part_map_path: str,
     output_dir: str,
+    output_filename: str = "points.txt",
     points_per_link: int = 1000,
     seed: int = 42
 ) -> None:
     """
     Generate point cloud .txt file from URDF.
     Format: obj_id part_name x y z r g b inst_code1 inst_code2 ...
+    
+    Args:
+        urdf_path: Path to URDF file
+        part_map_path: Path to part_map.json
+        output_dir: Output directory
+        output_filename: Output filename (default: "points.txt")
+        points_per_link: Points per link
+        seed: Random seed
     """
     np.random.seed(seed)
     random.seed(seed)
@@ -297,8 +323,8 @@ def create_pointcloud_txt(
         link_world_T = _build_link_world_transform(link_name, joints, world_cache)
         points = _apply_transform(points, link_world_T @ geom_T)
         
-        # Generate color (deterministic from link name)
-        color = generate_color(_stable_color_seed(link_name))
+        # Generate color: use evenly spaced hues for visually distinct parts
+        color = generate_distinct_color(link_idx, num_links)
         
         # Generate one-hot codes
         one_hot = generate_one_hot_codes(link_idx, num_links)
@@ -312,7 +338,7 @@ def create_pointcloud_txt(
             all_points.append(row)
     
     # Write to txt file
-    output_file = output_path / "points.txt"
+    output_file = output_path / output_filename
     with open(output_file, 'w') as f:
         for row in all_points:
             f.write(' '.join(row) + '\n')
@@ -341,6 +367,7 @@ if __name__ == '__main__':
     parser.add_argument('--urdf', required=True, help='Path to URDF file')
     parser.add_argument('--part-map', required=True, help='Path to part_map.json')
     parser.add_argument('--output', required=True, help='Output directory')
+    parser.add_argument('--output-filename', type=str, default='points.txt', help='Output filename (default: points.txt)')
     parser.add_argument('--points-per-link', type=int, default=1000, help='Number of points per link')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     
@@ -350,6 +377,7 @@ if __name__ == '__main__':
         urdf_path=args.urdf,
         part_map_path=args.part_map,
         output_dir=args.output,
+        output_filename=args.output_filename,
         points_per_link=args.points_per_link,
         seed=args.seed
     )
