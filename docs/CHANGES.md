@@ -15,11 +15,12 @@
   - `generate_pointcloud_from_urdf.py` の修正（URDF変換の適用）。
 
 ## ルール
-- ユーザーが新たに作成・管理するファイル（例: データ生成スクリプトや個人設定）は `mine/` 以下に置きます。
-- 元来のリポジトリファイル（アップストリーム由来の実行スクリプトやREADME等）はルートに残します。
 
 ## 移動したユーザー作成のドキュメント
-- `CPU_EVAL_REPORT.md` -> `mine/docs/CPU_EVAL_REPORT.md` (added by 233301koshiro)
-- `CPU_PROGRESS_GUIDE.md` -> `mine/docs/CPU_PROGRESS_GUIDE.md` (added by 233301koshiro)
 
+## 追記: 最近の推論不調の調査
+- 最近の `rrbot_test` 推論不調は、`UA.py` 自体の単純な破損というより、**原データと自作データの乖離**に起因する可能性が高いと整理しました。
+- 原データ側は、`point_cloud`・`answer.links`・`answer.joints` が学習時の構造に近く、`[SEG]` を含む自然な JSON 例になっていました。
+- 一方 `rrbot_test` 側は、部品名が `handle` に潰れやすく、`answer.joints` も空になりやすいため、モデルが JSON 生成や `[SEG]` 出力を続けにくい状態でした。
+- この差を埋めるため、`mine/scripts/data/urdf_to_eval_json.py` に `rrbot_test` 向けの具体例（`--example rrbot_test`）を追加し、`matching_part_map.py` で part map を作ってから JSON を作る流れを明示しました。
 必要であれば、このファイルにさらに詳細（元のコミットハッシュ一覧や移動前後のパス）を追加します。

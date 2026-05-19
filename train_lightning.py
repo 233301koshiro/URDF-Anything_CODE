@@ -130,6 +130,45 @@ def parse_answer_json(text: str) -> Optional[dict]:
         return None
 
 
+def diagnose_answer_json_failure(text: str) -> str:
+    ast_idx = text.rfind('ASSISTANT:')
+    if ast_idx >= 0:
+        text = text[ast_idx + len('ASSISTANT:'):].strip()
+
+    start = text.find('{')
+    if start == -1:
+        return 'missing opening brace'
+
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+
+        if ch == '"':
+            in_str = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            if depth == 0:
+                return f'unexpected closing brace at char {i}'
+            depth -= 1
+
+    if in_str:
+        return f'unterminated string near char {len(text) - 1}'
+    if depth > 0:
+        return f'missing {depth} closing brace(s) near char {len(text) - 1}'
+    return 'json syntax error'
+
+
 def get_ordered_link_semantics(parsed: dict) -> List[Tuple[str, str]]:
     links = parsed.get("links", {})
     sorted_names = sorted(
@@ -884,36 +923,65 @@ class LISALightningModule(LightningModule):
         points, colors, questions, gt_answers, seg_mask, part_indices, json_path = batch.values()
         print(f"[TEST_STEP_BATCH_LOADED] batch_idx={batch_idx}, elapsed={time.time()-step_start:.2f}s")
 
-        conv = conversation_lib.default_conversation.copy()
-        conv.messages = []
-        formatted_question = "<point>\n" + questions[0]
-        conv.append_message(conv.roles[0], formatted_question)
-        conv.append_message(conv.roles[1], "")
-        formatted_prompt = conv.get_prompt()
-
         json_path = json_path[0] if isinstance(json_path, list) else json_path
-        input_ids = tokenizer_point_token(formatted_prompt, self.tokenizer, return_tensors="pt")
         model_device = next(self.parameters()).device
-        input_ids = input_ids.unsqueeze(0).to(model_device)
+
+        def build_input_ids(question_text: str):
+            conv = conversation_lib.default_conversation.copy()
+            conv.messages = []
+            conv.append_message(conv.roles[0], question_text)
+            conv.append_message(conv.roles[1], "")
+            formatted_prompt = conv.get_prompt()
+            return tokenizer_point_token(formatted_prompt, self.tokenizer, return_tensors="pt").unsqueeze(0).to(model_device)
+
         print(f"[TEST_STEP_INPUT_PREPARED] batch_idx={batch_idx}, elapsed={time.time()-step_start:.2f}s")
 
         with torch.inference_mode():
             infer_start = time.time()
+            input_ids = build_input_ids(questions[0])
             output_ids, pred_masks = self.model.evaluate(
                 points,
                 colors,
                 input_ids,
-                max_new_tokens=getattr(self.training_args, 'gen_max_new_tokens', 512),
+                max_new_tokens=512,
                 tokenizer=self.tokenizer,
                 seg_type_ids=part_indices[0].tolist(),
             )
             infer_time = time.time() - infer_start
-            print(f"[TEST_STEP_INFER_DONE] batch_idx={batch_idx}, infer_time={infer_time:.2f}s, elapsed={time.time()-step_start:.2f}s")
 
         output_ids = output_ids[0]
         output_ids = output_ids[output_ids != POINT_TOKEN_INDEX]
         text_output = self.tokenizer.decode(output_ids, skip_special_tokens=True)
         text_output = text_output.replace("\n", "").replace("  ", " ")
+
+        if parse_answer_json(text_output) is None:
+            repair_reason = diagnose_answer_json_failure(text_output)
+            print(f"[TEST_STEP_RETRY] batch_idx={batch_idx}, repair_reason={repair_reason}")
+            with torch.inference_mode():
+                retry_infer_start = time.time()
+                input_ids = build_input_ids(
+                    questions[0]
+                    + "\nPrevious output had invalid JSON ("
+                    + repair_reason
+                    + "). Return only a corrected complete JSON object with all braces and quotes closed."
+                )
+                output_ids, pred_masks = self.model.evaluate(
+                    points,
+                    colors,
+                    input_ids,
+                    max_new_tokens=512,
+                    tokenizer=self.tokenizer,
+                    seg_type_ids=part_indices[0].tolist(),
+                )
+                infer_time += time.time() - retry_infer_start
+            output_ids = output_ids[0]
+            output_ids = output_ids[output_ids != POINT_TOKEN_INDEX]
+            text_output = self.tokenizer.decode(output_ids, skip_special_tokens=True)
+            text_output = text_output.replace("\n", "").replace("  ", " ")
+            if parse_answer_json(text_output) is None:
+                print(f"[TEST_STEP_RETRY_FAILED] batch_idx={batch_idx}, repair_reason={diagnose_answer_json_failure(text_output)}")
+
+        print(f"[TEST_STEP_INFER_DONE] batch_idx={batch_idx}, infer_time={infer_time:.2f}s, elapsed={time.time()-step_start:.2f}s")
 
         aligned_pred_masks, perm, method, pred_parsed, gt_parsed = align_pred_to_gt(
             pred_text=text_output,
