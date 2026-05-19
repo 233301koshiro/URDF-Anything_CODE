@@ -27,3 +27,6 @@ playground
 ckpt
 output
 wandb                                                       
+# local eval logs
+mine/scripts/eval/logs/
+mine/scripts/eval/logs/*.log
