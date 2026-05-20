@@ -925,11 +925,17 @@ class LISALightningModule(LightningModule):
 
         json_path = json_path[0] if isinstance(json_path, list) else json_path
         model_device = next(self.parameters()).device
+        gen_max_new_tokens = int(getattr(self.training_args, 'gen_max_new_tokens', 2048))
+        print(f"[TEST_STEP_GEN_LIMIT] batch_idx={batch_idx}, gen_max_new_tokens={gen_max_new_tokens}")
 
         def build_input_ids(question_text: str):
             conv = conversation_lib.default_conversation.copy()
             conv.messages = []
-            conv.append_message(conv.roles[0], question_text)
+            if question_text.lstrip().startswith("<point>"):
+                prompt_question = question_text
+            else:
+                prompt_question = "<point>\n" + question_text
+            conv.append_message(conv.roles[0], prompt_question)
             conv.append_message(conv.roles[1], "")
             formatted_prompt = conv.get_prompt()
             return tokenizer_point_token(formatted_prompt, self.tokenizer, return_tensors="pt").unsqueeze(0).to(model_device)
@@ -943,7 +949,7 @@ class LISALightningModule(LightningModule):
                 points,
                 colors,
                 input_ids,
-                max_new_tokens=512,
+                max_new_tokens=gen_max_new_tokens,
                 tokenizer=self.tokenizer,
                 seg_type_ids=part_indices[0].tolist(),
             )
@@ -969,7 +975,7 @@ class LISALightningModule(LightningModule):
                     points,
                     colors,
                     input_ids,
-                    max_new_tokens=512,
+                    max_new_tokens=gen_max_new_tokens,
                     tokenizer=self.tokenizer,
                     seg_type_ids=part_indices[0].tolist(),
                 )
@@ -1202,7 +1208,7 @@ class TrainingArguments(transformers.TrainingArguments):
     warmup_ratio: float = 0.3
     do_eval: bool = field(default=False)
     load_ckpt_path: str = field(default=None)
-    gen_max_new_tokens: int = field(default=1024, metadata={"help": "Max new tokens for generation during inference"})
+    gen_max_new_tokens: int = field(default=2048, metadata={"help": "Max new tokens for generation during inference"})
     debug_port: int = field(default=5678)
     limit_test_batches: int = field(default=None, metadata={"help": "Limit number of test batches (None for all)."})
 

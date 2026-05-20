@@ -209,6 +209,9 @@ class URDFReasoningDatasetBack(torch.utils.data.Dataset):
                 tail = tuple(int(float(v)) for v in t[8:]) if len(t) > 8 else tuple()
 
                 coords.append([x, y, z])
+                # Normalize RGB to [0, 1] range if values are in [0, 255]
+                if r > 1.0 or g > 1.0 or b > 1.0:
+                    r, g, b = r / 255.0, g / 255.0, b / 255.0
                 colors.append([r, g, b])
                 part_names.append(part)
                 inst_codes.append(tail)
