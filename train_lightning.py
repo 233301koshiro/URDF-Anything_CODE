@@ -963,6 +963,7 @@ class LISALightningModule(LightningModule):
         if parse_answer_json(text_output) is None:
             repair_reason = diagnose_answer_json_failure(text_output)
             print(f"[TEST_STEP_RETRY] batch_idx={batch_idx}, repair_reason={repair_reason}")
+            print(f"[TEST_STEP_RETRY_INITIAL_JSON] {text_output[:500]}")
             with torch.inference_mode():
                 retry_infer_start = time.time()
                 input_ids = build_input_ids(
@@ -985,7 +986,12 @@ class LISALightningModule(LightningModule):
             text_output = self.tokenizer.decode(output_ids, skip_special_tokens=True)
             text_output = text_output.replace("\n", "").replace("  ", " ")
             if parse_answer_json(text_output) is None:
-                print(f"[TEST_STEP_RETRY_FAILED] batch_idx={batch_idx}, repair_reason={diagnose_answer_json_failure(text_output)}")
+                retry_reason = diagnose_answer_json_failure(text_output)
+                print(f"[TEST_STEP_RETRY_FAILED] batch_idx={batch_idx}, repair_reason={retry_reason}")
+                print(f"[TEST_STEP_RETRY_FAILED_JSON] {text_output[:500]}")
+            else:
+                print(f"[TEST_STEP_RETRY_SUCCESS] batch_idx={batch_idx}")
+                print(f"[TEST_STEP_RETRY_SUCCESS_JSON] {text_output[:500]}")
 
         print(f"[TEST_STEP_INFER_DONE] batch_idx={batch_idx}, infer_time={infer_time:.2f}s, elapsed={time.time()-step_start:.2f}s")
 
