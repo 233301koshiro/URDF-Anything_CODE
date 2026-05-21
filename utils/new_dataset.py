@@ -87,6 +87,7 @@ class URDFReasoningDatasetBack(torch.utils.data.Dataset):
         max_samples: Optional[int] = None,
         num_points: int = 2048,
         sample_points: bool = True,
+        point_normalize: bool = True,
         answer_as_json_str: bool = True,  # True: json.dumps(answer)；False: str(answer)
     ):
         self.data_root = data_root
@@ -96,6 +97,7 @@ class URDFReasoningDatasetBack(torch.utils.data.Dataset):
         self.max_samples = max_samples
         self.num_points = int(num_points)
         self.sample_points = bool(sample_points)
+        self.point_normalize = bool(point_normalize)
         self.answer_as_json_str = bool(answer_as_json_str)
 
         self.json_root = os.path.join(self.data_root, "json_questions")
@@ -153,6 +155,9 @@ class URDFReasoningDatasetBack(torch.utils.data.Dataset):
             coords, colors, part_names, inst_codes = self._sample_or_pad(
                 coords, colors, part_names, inst_codes, self.num_points
             )
+
+        if self.point_normalize:
+            coords = pc_normalize(coords)
 
         normalized_coords = coords.T
 

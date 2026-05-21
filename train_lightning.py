@@ -675,11 +675,13 @@ class LISADataModule(LightningDataModule):
                                                     split="train",
                                                     train_ratio=0.9,
                                                     max_samples=self.data_args.max_samples,
+                                                    point_normalize=self.data_args.point_normalize,
                                                     )
             self.val_dataset = URDFReasoningDataset(data_root=self.data_args.data_root,
                                                 split="test",
                                                 train_ratio=0.9,
                                                 max_samples=self.data_args.max_samples,
+                                                point_normalize=self.data_args.point_normalize,
                                                 )
             self.test_dataset = self.val_dataset
         elif stage == 'test':
@@ -687,6 +689,7 @@ class LISADataModule(LightningDataModule):
                                                 split="all",
                                                 train_ratio=0.9,
                                                 max_samples=self.data_args.max_samples,
+                                                point_normalize=self.data_args.point_normalize,
                                                 )
         self.pin_memory = True
 
@@ -926,7 +929,9 @@ class LISALightningModule(LightningModule):
         json_path = json_path[0] if isinstance(json_path, list) else json_path
         model_device = next(self.parameters()).device
         gen_max_new_tokens = int(getattr(self.training_args, 'gen_max_new_tokens', 2048))
+        retry_even_if_json_valid = bool(getattr(self.training_args, 'retry_even_if_json_valid', False))
         print(f"[TEST_STEP_GEN_LIMIT] batch_idx={batch_idx}, gen_max_new_tokens={gen_max_new_tokens}")
+        print(f"[TEST_STEP_RETRY_POLICY] batch_idx={batch_idx}, retry_even_if_json_valid={retry_even_if_json_valid}")
 
         def build_input_ids(question_text: str):
             conv = conversation_lib.default_conversation.copy()
@@ -956,22 +961,41 @@ class LISALightningModule(LightningModule):
             infer_time = time.time() - infer_start
 
         output_ids = output_ids[0]
+        initial_seg_count = int((output_ids == getattr(self.model, 'seg_token_idx', -1)).sum().item()) if hasattr(self.model, 'seg_token_idx') else -1
         output_ids = output_ids[output_ids != POINT_TOKEN_INDEX]
         text_output = self.tokenizer.decode(output_ids, skip_special_tokens=True)
         text_output = text_output.replace("\n", "").replace("  ", " ")
+        initial_text_output = text_output
 
-        if parse_answer_json(text_output) is None:
-            repair_reason = diagnose_answer_json_failure(text_output)
-            print(f"[TEST_STEP_RETRY] batch_idx={batch_idx}, repair_reason={repair_reason}")
+        initial_json_valid = parse_answer_json(text_output) is not None
+        print(
+            f"[TEST_STEP_RETRY_INITIAL_STATS] batch_idx={batch_idx}, initial_json_valid={initial_json_valid}, initial_seg_count={initial_seg_count}, initial_json_preview={initial_text_output[:500]}"
+        )
+
+        should_retry = (not initial_json_valid) or retry_even_if_json_valid
+        retry_reason = None
+        if should_retry:
+            if initial_json_valid:
+                retry_reason = "forced retry after valid JSON"
+            else:
+                retry_reason = diagnose_answer_json_failure(text_output)
+            print(f"[TEST_STEP_RETRY] batch_idx={batch_idx}, reason={retry_reason}")
             print(f"[TEST_STEP_RETRY_INITIAL_JSON] {text_output[:500]}")
             with torch.inference_mode():
                 retry_infer_start = time.time()
-                input_ids = build_input_ids(
-                    questions[0]
-                    + "\nPrevious output had invalid JSON ("
-                    + repair_reason
-                    + "). Return only a corrected complete JSON object with all braces and quotes closed."
-                )
+                if initial_json_valid:
+                    retry_question = (
+                        questions[0]
+                        + "\nPrevious output was syntactically valid JSON but may be incomplete or miss some parts. Return only an improved complete JSON object covering all parts, with all braces and quotes closed."
+                    )
+                else:
+                    retry_question = (
+                        questions[0]
+                        + "\nPrevious output had invalid JSON ("
+                        + retry_reason
+                        + "). Return only a corrected complete JSON object with all braces and quotes closed."
+                    )
+                input_ids = build_input_ids(retry_question)
                 output_ids, pred_masks = self.model.evaluate(
                     points,
                     colors,
@@ -982,16 +1006,35 @@ class LISALightningModule(LightningModule):
                 )
                 infer_time += time.time() - retry_infer_start
             output_ids = output_ids[0]
+            retry_seg_count = int((output_ids == getattr(self.model, 'seg_token_idx', -1)).sum().item()) if hasattr(self.model, 'seg_token_idx') else -1
             output_ids = output_ids[output_ids != POINT_TOKEN_INDEX]
             text_output = self.tokenizer.decode(output_ids, skip_special_tokens=True)
             text_output = text_output.replace("\n", "").replace("  ", " ")
-            if parse_answer_json(text_output) is None:
+            retry_json_valid = parse_answer_json(text_output) is not None
+            print(
+                f"[TEST_STEP_RETRY_POST_STATS] batch_idx={batch_idx}, retry_json_valid={retry_json_valid}, retry_seg_count={retry_seg_count}, retry_json_preview={text_output[:500]}"
+            )
+            if not retry_json_valid:
                 retry_reason = diagnose_answer_json_failure(text_output)
                 print(f"[TEST_STEP_RETRY_FAILED] batch_idx={batch_idx}, repair_reason={retry_reason}")
                 print(f"[TEST_STEP_RETRY_FAILED_JSON] {text_output[:500]}")
             else:
                 print(f"[TEST_STEP_RETRY_SUCCESS] batch_idx={batch_idx}")
                 print(f"[TEST_STEP_RETRY_SUCCESS_JSON] {text_output[:500]}")
+
+        retry_trace = {
+            "initial_json_valid": initial_json_valid,
+            "initial_seg_count": initial_seg_count,
+            "initial_json_preview": initial_text_output[:500],
+            "retry_even_if_json_valid": retry_even_if_json_valid,
+        }
+        if should_retry:
+            retry_trace.update({
+                "retry_reason": retry_reason,
+                "retry_json_valid": parse_answer_json(text_output) is not None,
+                "retry_seg_count": retry_seg_count,
+                "retry_json_preview": text_output[:500],
+            })
 
         print(f"[TEST_STEP_INFER_DONE] batch_idx={batch_idx}, infer_time={infer_time:.2f}s, elapsed={time.time()-step_start:.2f}s")
 
@@ -1046,6 +1089,7 @@ class LISALightningModule(LightningModule):
             org_json["json_path"] = json_path
 
         org_json["pred_answers_raw"] = text_output
+        org_json["retry_trace"] = retry_trace
 
         if reordered_pred is not None:
             org_json["pred_answers"] = json.dumps(reordered_pred, ensure_ascii=False)
@@ -1183,6 +1227,7 @@ class DataArguments:
     is_multimodal: bool = False
     point_folder: Optional[str] = field(default=None)
     sample_points_num: int = field(default=4096)
+    point_normalize: bool = field(default=True, metadata={"help": "Normalize point coordinates to unit sphere."})
     occlusion: bool = field(default=False)
     predict_type: str = field(default="seg")
     max_samples: int = field(default=None)
@@ -1216,6 +1261,7 @@ class TrainingArguments(transformers.TrainingArguments):
     load_ckpt_path: str = field(default=None)
     gen_max_new_tokens: int = field(default=2048, metadata={"help": "Max new tokens for generation during inference"})
     debug_port: int = field(default=5678)
+    retry_even_if_json_valid: bool = field(default=False, metadata={"help": "Force a second generation pass even when the first JSON parses successfully."})
     limit_test_batches: int = field(default=None, metadata={"help": "Limit number of test batches (None for all)."})
 
 

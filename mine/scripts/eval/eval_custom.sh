@@ -12,6 +12,7 @@ CUSTOM_DATA_ROOT="${CUSTOM_DATA_ROOT:-./datasets/rrbot_test}"
 OUTPUT_DIR="${OUTPUT_DIR:-./output_custom/checkpoints/ShapeLLM_7B_gapartnet_v1.0-lora/infer_custom}"
 CKPT_PATH="${CKPT_PATH:-./checkpoints/last.ckpt}"
 LIMIT_TEST_BATCHES="${LIMIT_TEST_BATCHES:-1}"
+RETRY_EVEN_IF_JSON_VALID="${RETRY_EVEN_IF_JSON_VALID:-0}"
 
 if [ -z "${EVAL_CUSTOM_IN_CONTAINER:-}" ] && [ ! -f "/.dockerenv" ]; then
   TARGET_CONTAINER=""
@@ -60,6 +61,7 @@ if [ -z "${EVAL_CUSTOM_IN_CONTAINER:-}" ] && [ ! -f "/.dockerenv" ]; then
     -e OUTPUT_DIR="$OUTPUT_DIR" \
     -e CKPT_PATH="$CKPT_PATH" \
     -e LIMIT_TEST_BATCHES="$LIMIT_TEST_BATCHES" \
+    -e RETRY_EVEN_IF_JSON_VALID="$RETRY_EVEN_IF_JSON_VALID" \
     "$TARGET_CONTAINER" \
     bash -lc "cd '$CONTAINER_WORKSPACE' && ./mine/scripts/eval/eval_custom.sh"
 fi
@@ -72,6 +74,14 @@ mkdir -p "${OUTPUT_DIR}"
 sed -i 's/from pydantic.warnings import PydanticDeprecatedSince20/PydanticDeprecatedSince20 = Warning/g' train_lightning.py || true
 sed -i 's/\*param.size()/param.size()/g' /usr/local/lib/python3.10/site-packages/transformers/modeling_utils.py || true
 sed -i "s/assert self.precision in (16, 32), 'only 32 or 16 bit precision supported'/self.precision = 32/g" /usr/local/lib/python3.10/site-packages/pytorch_lightning/trainer/trainer.py || true
+
+if ! python - <<'PY' >/dev/null 2>&1
+import open3d
+PY
+then
+  echo "[eval_custom] Installing missing runtime dependency: open3d"
+  pip install open3d
+fi
 
 if [ ! -d "${CUSTOM_DATA_ROOT}/json_questions" ] || [ ! -d "${CUSTOM_DATA_ROOT}/point_clouds" ]; then
   echo "[eval_custom] ERROR: dataset root must contain json_questions/ and point_clouds/" >&2
@@ -136,6 +146,7 @@ python eval.py \
   --mm_vision_select_layer -2 \
   --pretrain_mm_mlp_adapter ./checkpoints/mm_projector/mm_projector.bin \
   --load_ckpt_path "${CKPT_PATH}" \
+  --retry_even_if_json_valid "${RETRY_EVEN_IF_JSON_VALID}" \
   --limit_test_batches "${LIMIT_TEST_BATCHES}" \
   2>&1 | tee "${LOG_FILE}"
 
