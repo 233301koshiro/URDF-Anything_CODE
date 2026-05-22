@@ -275,6 +275,48 @@ def align_pred_to_gt(
     return aligned, perm, method, pred_parsed, gt_parsed
 
 
+def dump_pred_mask_debug(pred_mask: torch.Tensor, batch_idx: int, threshold: float = 0.5) -> None:
+    if pred_mask is None:
+        print(f"[PRED_MASK_DEBUG] batch_idx={batch_idx}, pred_mask=None")
+        return
+
+    if pred_mask.ndim != 2:
+        print(f"[PRED_MASK_DEBUG] batch_idx={batch_idx}, invalid_shape={tuple(pred_mask.shape)}")
+        return
+
+    with torch.no_grad():
+        mask = pred_mask.detach().float().cpu()
+        K, N = mask.shape
+        print(f"[PRED_MASK_DEBUG] batch_idx={batch_idx}, K={K}, N={N}, threshold={threshold}")
+
+        per_channel_stats = []
+        for k in range(K):
+            row = mask[k]
+            mean_v = float(row.mean().item())
+            max_v = float(row.max().item())
+            min_v = float(row.min().item())
+            area = int((row > threshold).sum().item())
+            per_channel_stats.append((k, mean_v, max_v, min_v, area))
+
+        for k, mean_v, max_v, min_v, area in per_channel_stats:
+            print(
+                f"[PRED_MASK_DEBUG] channel={k:02d} mean={mean_v:.4f} max={max_v:.4f} min={min_v:.4f} area@{threshold}={area}"
+            )
+
+        if K <= 1:
+            return
+
+        bin_mask = mask > threshold
+        iou = torch.zeros((K, K), dtype=torch.float32)
+        for i in range(K):
+            for j in range(K):
+                inter = torch.logical_and(bin_mask[i], bin_mask[j]).sum().float()
+                union = torch.logical_or(bin_mask[i], bin_mask[j]).sum().float()
+                if union > 0:
+                    iou[i, j] = inter / union
+        print(f"[PRED_MASK_DEBUG] pairwise_iou@{threshold}={iou.tolist()}")
+
+
 def reorder_pred_json(
     pred_parsed: Optional[dict],
     gt_parsed: Optional[dict],
@@ -966,6 +1008,9 @@ class LISALightningModule(LightningModule):
         text_output = self.tokenizer.decode(output_ids, skip_special_tokens=True)
         text_output = text_output.replace("\n", "").replace("  ", " ")
         initial_text_output = text_output
+
+        if len(pred_masks) > 0:
+            dump_pred_mask_debug(pred_masks[0], batch_idx=batch_idx, threshold=0.5)
 
         initial_json_valid = parse_answer_json(text_output) is not None
         print(

@@ -234,6 +234,53 @@ class LISAForCausalLM(LlavaLlamaForCausalLM):
             return total_loss, seg_loss, pred_segment, segment_label, lm_out
         return total_loss, seg_loss, pred_segment, segment_label
 
+    def _enrich_seg_embeddings_with_part_ids(
+        self,
+        h_seg: torch.Tensor,
+        seg_type_ids: Optional[list] = None,
+        weight: float = 0.1,
+        use_part_embedding: bool = True,
+    ) -> torch.Tensor:
+        """
+        Optionally enrich segment query embeddings with part ID information.
+        This helps each [SEG] token know which part it's responsible for,
+        encouraging diverse mask outputs.
+        
+        Args:
+            h_seg: [K, hidden_dim] segment embeddings
+            seg_type_ids: list of K part IDs (0-indexed)
+            weight: scaling factor for part ID contribution (default 0.1)
+            use_part_embedding: whether to apply this enrichment (can be toggled off easily)
+        
+        Returns:
+            Enriched h_seg with same shape, or original h_seg if disabled/invalid
+        """
+        if not use_part_embedding or seg_type_ids is None or len(seg_type_ids) == 0:
+            return h_seg
+        
+        if h_seg.shape[0] != len(seg_type_ids):
+            print(f"[PART_EMBED_WARN] h_seg.shape[0]={h_seg.shape[0]} != len(seg_type_ids)={len(seg_type_ids)}, skipping enrichment")
+            return h_seg
+        
+        try:
+            device = h_seg.device
+            hidden_dim = h_seg.shape[-1]
+            
+            part_ids_tensor = torch.tensor(seg_type_ids, dtype=torch.long, device=device)
+            
+            part_embed_max = max(seg_type_ids) + 1
+            if not hasattr(self, '_part_id_embedding'):
+                self._part_id_embedding = nn.Embedding(max(10, part_embed_max), hidden_dim).to(device)
+            
+            part_emb = self._part_id_embedding(part_ids_tensor)
+            
+            h_seg_enriched = h_seg + weight * part_emb
+            
+            print(f"[PART_EMBED_APPLIED] K={h_seg.shape[0]}, hidden_dim={hidden_dim}, weight={weight}")
+            return h_seg_enriched
+        except Exception as e:
+            print(f"[PART_EMBED_ERROR] {e}, using original h_seg")
+            return h_seg
 
     @torch.no_grad()
     def evaluate(
@@ -327,6 +374,13 @@ class LISAForCausalLM(LlavaLlamaForCausalLM):
                 prev_pos = torch.clamp(seg_pos - 1, min=0)
                 h_prev = full_h[i, prev_pos, :]
                 h_seg = torch.cat([h_prev, h_seg], dim=-1) 
+
+            h_seg = self._enrich_seg_embeddings_with_part_ids(
+                h_seg,
+                seg_type_ids=seg_type_ids,
+                weight=0.1,
+                use_part_embedding=True,
+            )
 
             logits = self.seg_decoder(h_seg, point_embeddings[i], xyz=xyz[i])
             probs = torch.sigmoid(logits) if return_probs else logits
